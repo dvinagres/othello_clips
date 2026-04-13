@@ -13,5 +13,8 @@
 
 ; info del jugador
 (deftemplate jugador
-    ()
+    (slot color (type SYMBOL) (allowed-values negro blanco))
+    (slot tipo (type SYMBOL) (allowed-values humano maquina))
+    (slot cantidad_fichas (type INTEGER))
 )
+
