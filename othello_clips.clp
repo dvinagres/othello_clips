@@ -1,4 +1,4 @@
-; TEMPLATES
+; T
 ; info tablero
 (deftemplate tablero
     (slot fila (type INTEGER))
