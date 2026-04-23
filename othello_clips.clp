@@ -50,7 +50,7 @@
 
 (defrule imprimir-tablero-inicial
     (declare (salience -10)) ; prioridad baja para que se ejecute después de crear las fichas
-    (initial-fact) ; O el hecho que uses para detectar el inicio
+    (initial-fact)
     =>
     (printout t "ESTADO ACTUAL DEL TABLERO:" crlf)
     (mostrar-tablero 8)
