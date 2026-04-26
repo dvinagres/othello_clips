@@ -150,6 +150,7 @@
 
 ; 1. COLOCAR: Pone la ficha y BORRA el intento para evitar el bucle infinito
 (defrule colocar-ficha-actual
+   (declare (salience 5))
    ?fase <- (juego (fase ejecucion))
    ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
    ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
