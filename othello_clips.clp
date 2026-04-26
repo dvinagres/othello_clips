@@ -32,6 +32,28 @@
     (slot fase (allowed-values inicializacion peticion validacion ejecucion cambio-turno))
 )
 
+(deftemplate direccion
+    (slot df (type INTEGER)) ; Desplazamiento de fila (-1, 0, 1)
+    (slot dc (type INTEGER)) ; Desplazamiento de columna (-1, 0, 1)
+)
+
+(deftemplate captura-confirmada
+    (slot fila-orig)
+    (slot col-orig)
+    (slot fila-fin)
+    (slot col-fin)
+    (slot df)
+    (slot dc)
+    (slot color)
+)
+
+(deftemplate rastreo
+   (slot f (type INTEGER))
+   (slot c (type INTEGER))
+   (slot df (type INTEGER))
+   (slot dc (type INTEGER))
+)
+
 ; =========================================
 ; 2. FACTS (Hechos iniciales)
 ; =========================================
@@ -42,6 +64,12 @@
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
     (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
+)
+
+(deffacts vectores-direccion
+    (direccion (df -1) (dc -1)) (direccion (df -1) (dc  0)) (direccion (df -1) (dc  1))
+    (direccion (df  0) (dc -1))                            (direccion (df  0) (dc  1))
+    (direccion (df  1) (dc -1)) (direccion (df  1) (dc  0)) (direccion (df  1) (dc  1))
 )
 
 ; =========================================
@@ -117,22 +145,51 @@
     (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c)))
     
     (retract ?fase)
-    (assert (juego (fase ejecucion))) 
+    (assert (juego (fase validacion))) 
 )
 
-(defrule ejecutar-movimiento-simple
-    ?fase <- (juego (fase ejecucion))
-    ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
-    ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
-    =>
-    (retract ?i ?fase)
-    (modify ?casilla (estado ?color))
-    (printout t "Movimiento realizado en " ?f "," ?c crlf)
-    (assert (juego (fase cambio-turno))) 
+; 1. COLOCAR: Pone la ficha y BORRA el intento para evitar el bucle infinito
+(defrule colocar-ficha-actual
+   ?fase <- (juego (fase ejecucion))
+   ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
+   ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
+   ?jug <- (jugador (color ?color) (cantidad_fichas ?can))
+   =>
+   (retract ?i) ; <--- CRITICO: Borramos el intento ya
+   (modify ?casilla (estado ?color))
+   (modify ?jug (cantidad_fichas (- ?can 1)))
+   (printout t "Ficha " ?color " colocada en " ?f "," ?c crlf)
+   ; Dejamos la fase en ejecucion para que actúe el volteo
+)
+
+; 2. VOLTEAR: Solo actúa sobre fichas que son del RIVAL actualmente
+(defrule aplicar-volteo
+   (juego (fase ejecucion))
+   (captura-confirmada (fila-orig ?fo) (col-orig ?co) 
+                       (fila-fin ?ff) (col-fin ?cf) 
+                       (df ?df) (dc ?dc) (color ?p))
+   ; Buscamos fichas que NO sean del color que captura
+   ?t <- (tablero (fila ?fr) (columna ?cr) (estado ~vacia&~?p))
+   
+   ; TEST: ¿Está la ficha rival en el segmento entre el origen y el fin?
+   (test (and
+      ; 1. ¿Está en la línea recta correcta?
+      (= (* (- ?fr ?fo) ?dc) (* (- ?cr ?co) ?df))
+      ; 2. ¿Está en la dirección de avance?
+      (>= (* (- ?fr ?fo) ?df) 0)
+      (>= (* (- ?cr ?co) ?dc) 0)
+      ; 3. ¿Está ANTES de llegar a la ficha que cierra el sándwich?
+      (or (< (abs (- ?fr ?fo)) (abs (- ?ff ?fo)))
+          (< (abs (- ?cr ?co)) (abs (- ?cf ?co))))
+   ))
+   =>
+   (modify ?t (estado ?p))
+   (printout t "Ficha capturada en " ?fr "," ?cr crlf)
 )
 
 (defrule error-casilla-ocupada
-    ?fase <- (juego (fase ejecucion))
+    (declare (salience 20))
+    ?fase <- (juego (fase validacion))
     ?i <- (intento-movimiento (fila ?f) (columna ?c))
     (tablero (fila ?f) (columna ?c) (estado ?estado&~vacia))
     =>
@@ -142,7 +199,8 @@
 ) 
 
 (defrule error-coordenadas-invalidas
-    ?fase <- (juego (fase ejecucion))
+    (declare (salience 20))
+    ?fase <- (juego (fase validacion))
     ?i <- (intento-movimiento (fila ?f) (columna ?c))
     (not (tablero (fila ?f) (columna ?c)))
     =>
@@ -163,4 +221,79 @@
     )
     (mostrar-tablero ?n)
     (assert (juego (fase peticion))) 
+)
+
+; 1. Si el vecino en una dirección es del rival, lanzamos un rastreador
+(defrule iniciar-rastreo
+   (juego (fase validacion))
+   (intento-movimiento (color ?propio) (fila ?f) (columna ?c))
+   (direccion (df ?df) (dc ?dc))
+   ; El vecino inmediato debe ser del rival
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?rival&~vacia&~?propio))
+   =>
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
+)
+
+; 2. El rastreador avanza mientras encuentre fichas del rival
+(defrule propagar-rastreo
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc))
+   (intento-movimiento (color ?propio))
+   (tablero (fila ?f) (columna ?c) (estado ?rival&~vacia&~?propio))
+   =>
+   (modify ?r (f (+ ?f ?df)) (c (+ ?c ?dc)))
+)
+
+; 3. Si el rastreador encuentra una ficha propia, ¡sándwich confirmado! 
+(defrule confirmar-captura
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f_fin) (c ?c_fin) (df ?df) (dc ?dc))
+   (intento-movimiento (color ?propio) (fila ?f_orig) (columna ?c_orig))
+   (tablero (fila ?f_fin) (columna ?c_fin) (estado ?propio))
+   =>
+   (retract ?r)
+   (assert (captura-confirmada (fila-orig ?f_orig) (col-orig ?c_orig) 
+                               (fila-fin ?f_fin) (col-fin ?c_fin)
+                               (df ?df) (dc ?dc) (color ?propio)))
+)
+
+; 4. Si el rastreador se sale del tablero o encuentra un hueco, se borra
+(defrule limpiar-rastreo-fallido
+   (declare (salience -5))
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f) (c ?c))
+   (or (not (tablero (fila ?f) (columna ?c)))
+       (tablero (fila ?f) (columna ?c) (estado vacia)))
+   =>
+   (retract ?r)
+)
+
+(defrule error-movimiento-ilegal
+    (declare (salience -10)) ; Se ejecuta al final de la validacion
+    ?fase <- (juego (fase validacion))
+    ?i <- (intento-movimiento (fila ?f) (columna ?c))
+    (not (captura-confirmada))
+    =>
+    (retract ?fase ?i)
+    (printout t "ERROR: Movimiento ilegal. Debe capturar al menos una ficha rival." crlf)
+    (assert (juego (fase peticion)))
+)
+
+(defrule validar-exito-y-ejecutar
+   ?fase <- (juego (fase validacion))
+   (captura-confirmada) ; Existe al menos una dirección válida
+   =>
+   (retract ?fase)
+   (assert (juego (fase ejecucion)))
+)
+
+; 3. FINALIZAR: Limpia las direcciones y cambia el turno
+(defrule finalizar-fase-ejecucion
+   (declare (salience -10))
+   ?fase <- (juego (fase ejecucion))
+   (not (intento-movimiento))
+   =>
+   (retract ?fase)
+   (do-for-all-facts ((?c captura-confirmada)) TRUE (retract ?c))
+   (assert (juego (fase cambio-turno)))
 )
