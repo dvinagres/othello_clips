@@ -104,13 +104,14 @@
 
 (defrule pedir-movimiento-humano
     ?fase <- (juego (fase peticion))
+    (configuracion (tamano ?n)) ; <--- Añadimos esto para saber el límite
     (turno (jugador ?color-actual))
     (jugador (color ?color-actual) (tipo humano))
     (not (intento-movimiento))
     =>
-    (printout t "Turno de " ?color-actual ". Fila (1-8): ")
+    (printout t "Turno de " ?color-actual ". Fila (1-" ?n "): ") ; <--- Usamos ?n
     (bind ?f (integer (read))) 
-    (printout t "Columna (1-8): ")
+    (printout t "Columna (1-" ?n "): ") ; <--- Usamos ?n
     (bind ?c (integer (read)))
     
     (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c)))
