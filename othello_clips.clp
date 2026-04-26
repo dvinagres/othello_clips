@@ -8,6 +8,10 @@
     (slot estado (type SYMBOL) (allowed-values vacia negra blanca))
 )
 
+(deftemplate configuracion
+    (slot tamano (type INTEGER) (default 8))
+)
+
 (deftemplate turno
     (slot jugador (type SYMBOL) (allowed-values negra blanca))
 )
@@ -33,9 +37,10 @@
 ; =========================================
 
 (deffacts estado-inicial
+    (configuracion (tamano 8))
     (turno (jugador negra))
-    (jugador (color negra) (tipo humano) (cantidad_fichas 2))
-    (jugador (color blanca) (tipo humano) (cantidad_fichas 2))
+    (jugador (color negra) (tipo humano) (cantidad_fichas 30))
+    (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
 )
 
@@ -44,11 +49,14 @@
 ; =========================================
 
 (deffunction mostrar-tablero (?tamano)
-    (printout t crlf "   | ")
-    (loop-for-count (?c 1 ?tamano)
-        (printout t ?c " | ")
-    )
-    (printout t crlf "---------------------------------------" crlf)
+    (printout t crlf "    | ")
+    (loop-for-count (?c 1 ?tamano) (printout t ?c " | "))
+    (printout t crlf)
+    
+    ; Línea divisoria dinámica
+    (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-")) 
+    (printout t crlf)
+
     (loop-for-count (?f 1 ?tamano)
         (printout t " " ?f " | ") 
         (loop-for-count (?c 1 ?tamano)
@@ -59,9 +67,10 @@
                 (if (eq ?casilla:estado blanca) then (printout t "B | "))
             )
         )
-        (printout t crlf "---------------------------------------" crlf)
+        (printout t crlf)
+        (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-"))
+        (printout t crlf)
     )
-    (printout t crlf)
 )
 
 ; =========================================
@@ -71,33 +80,38 @@
 ; Genera el tablero y pasa a pedir el movimiento
 (defrule inicializar-tablero
    ?fase <- (juego (fase inicializacion))
+   (configuracion (tamano ?n))
    =>
-   (loop-for-count (?f 1 8)
-      (loop-for-count (?c 1 8)
-         (if (or (and (= ?f 4) (= ?c 4)) (and (= ?f 5) (= ?c 5))) then
-             (assert (tablero (fila ?f) (columna ?c) (estado blanca)))
-         else (if (or (and (= ?f 4) (= ?c 5)) (and (= ?f 5) (= ?c 4))) then
-             (assert (tablero (fila ?f) (columna ?c) (estado negra)))
+   (bind ?c1 (/ ?n 2))
+   (bind ?c2 (+ (/ ?n 2) 1)) 
+
+   (loop-for-count (?f 1 ?n)
+      (loop-for-count (?c 1 ?n)
+         (if (or (and (= ?f ?c1) (= ?c ?c1)) (and (= ?f ?c2) (= ?c ?c2))) then
+            (assert (tablero (fila ?f) (columna ?c) (estado blanca)))
+         else (if (or (and (= ?f ?c1) (= ?c ?c2)) (and (= ?f ?c2) (= ?c ?c1))) then
+            (assert (tablero (fila ?f) (columna ?c) (estado negra)))
          else
-             (assert (tablero (fila ?f) (columna ?c) (estado vacia))))
+            (assert (tablero (fila ?f) (columna ?c) (estado vacia))))
          )
       )
    )
-   (printout t "ESTADO ACTUAL DEL TABLERO:" crlf)
-   (mostrar-tablero 8)
+   (printout t "TABLERO " ?n "x" ?n " INICIALIZADO" crlf)
+   (mostrar-tablero ?n)
    (retract ?fase)
    (assert (juego (fase peticion)))
 )
 
 (defrule pedir-movimiento-humano
     ?fase <- (juego (fase peticion))
+    (configuracion (tamano ?n)) ; <--- Añadimos esto para saber el límite
     (turno (jugador ?color-actual))
     (jugador (color ?color-actual) (tipo humano))
     (not (intento-movimiento))
     =>
-    (printout t "Turno de " ?color-actual ". Fila (1-8): ")
+    (printout t "Turno de " ?color-actual ". Fila (1-" ?n "): ") ; <--- Usamos ?n
     (bind ?f (integer (read))) 
-    (printout t "Columna (1-8): ")
+    (printout t "Columna (1-" ?n "): ") ; <--- Usamos ?n
     (bind ?c (integer (read)))
     
     (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c)))
@@ -140,12 +154,13 @@
 (defrule realizar-cambio-turno
     ?fase <- (juego (fase cambio-turno))
     ?t <- (turno (jugador ?color))
+    (configuracion (tamano ?n))
     =>
     (retract ?t ?fase)
     (if (eq ?color negra) 
         then (assert (turno (jugador blanca)))
         else (assert (turno (jugador negra)))
     )
-    (mostrar-tablero 8)
+    (mostrar-tablero ?n)
     (assert (juego (fase peticion))) 
 )
