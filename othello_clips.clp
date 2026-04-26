@@ -39,8 +39,8 @@
 (deffacts estado-inicial
     (configuracion (tamano 8))
     (turno (jugador negra))
-    (jugador (color negra) (tipo humano) (cantidad_fichas 2))
-    (jugador (color blanca) (tipo humano) (cantidad_fichas 2))
+    (jugador (color negra) (tipo humano) (cantidad_fichas 30))
+    (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
 )
 
