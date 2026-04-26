@@ -49,11 +49,14 @@
 ; =========================================
 
 (deffunction mostrar-tablero (?tamano)
-    (printout t crlf "   | ")
-    (loop-for-count (?c 1 ?tamano)
-        (printout t ?c " | ")
-    )
-    (printout t crlf "---------------------------------------" crlf)
+    (printout t crlf "    | ")
+    (loop-for-count (?c 1 ?tamano) (printout t ?c " | "))
+    (printout t crlf)
+    
+    ; Línea divisoria dinámica
+    (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-")) 
+    (printout t crlf)
+
     (loop-for-count (?f 1 ?tamano)
         (printout t " " ?f " | ") 
         (loop-for-count (?c 1 ?tamano)
@@ -64,9 +67,10 @@
                 (if (eq ?casilla:estado blanca) then (printout t "B | "))
             )
         )
-        (printout t crlf "---------------------------------------" crlf)
+        (printout t crlf)
+        (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-"))
+        (printout t crlf)
     )
-    (printout t crlf)
 )
 
 ; =========================================
