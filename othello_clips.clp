@@ -59,7 +59,7 @@
 ; =========================================
 
 (deffacts estado-inicial
-    (configuracion (tamano 8))
+    (configuracion (tamano 4))
     (turno (jugador negra))
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
     (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
@@ -218,11 +218,11 @@
     (configuracion (tamano ?n))
     =>
     (retract ?t ?fase)
-    (if (eq ?color negra) 
-        then (assert (turno (jugador blanca)))
-        else (assert (turno (jugador negra)))
-    )
-    (mostrar-tablero ?n)
+    (bind ?nuevo-color (if (eq ?color negra) then blanca else negra))
+    (assert (turno (jugador ?nuevo-color)))
+    
+    (printout t crlf "--- TURNO DE " ?nuevo-color " ---" crlf)
+    (mostrar-tablero ?n) ; <--- Mostramos aquí para que el jugador vea el estado actual
     (assert (juego (fase analisis))) 
 )
 
@@ -302,33 +302,34 @@
    (assert (juego (fase cambio-turno)))
 )
 
-; PASAR TURNO Y FIN DE JUEGO
 ; 1. Lanza rastreadores desde todas las casillas vacías hacia los rivales
 (defrule iniciar-analisis
    (juego (fase analisis))
    (turno (jugador ?p))
+   (not (puede-mover))
    (tablero (fila ?f) (columna ?c) (estado vacia))
    (direccion (df ?df) (dc ?dc))
    (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
    =>
-   (assert (rastreo-analisis (+ ?f (* 2 ?df)) (+ ?c (* 2 ?dc)) ?df ?dc))
+   ; AJUSTE: Usamos slots (f ... c ... df ... dc ...)
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
 )
 
 ; 2. El rastreador avanza por la línea de rivales
 (defrule propagar-analisis
    (juego (fase analisis))
-   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc)) ; AJUSTE: Slots
    (turno (jugador ?p))
    (tablero (fila ?f) (columna ?c) (estado ?r&~vacia&~?p))
    =>
-   (retract ?rastreo)
-   (assert (rastreo-analisis (+ ?f ?df) (+ ?c ?dc) ?df ?dc))
+   ; AJUSTE: Usamos modify para avanzar slots
+   (modify ?rastreo (f (+ ?f ?df)) (c (+ ?c ?dc)))
 )
 
 ; 3. Si llega a una ficha propia, hay movimiento posible
 (defrule exito-analisis
    (juego (fase analisis))
-   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   ?rastreo <- (rastreo (f ?f) (c ?c)) ; AJUSTE: Slots
    (turno (jugador ?p))
    (tablero (fila ?f) (columna ?c) (estado ?p))
    =>
@@ -340,7 +341,7 @@
 (defrule limpiar-analisis
    (declare (salience -5))
    (juego (fase analisis))
-   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   ?rastreo <- (rastreo (f ?f) (c ?c)) ; AJUSTE: Slots
    (or (not (tablero (fila ?f) (columna ?c)))
        (tablero (fila ?f) (columna ?c) (estado vacia)))
    =>
@@ -351,10 +352,13 @@
 (defrule analisis-con-movimientos
    (declare (salience -10))
    ?fase <- (juego (fase analisis))
-   ?m <- (puede-mover)
-   ?p <- (pases-consecutivos ?n)
+   (puede-mover)
+   ?p-cons <- (pases-consecutivos ?n)
    =>
-   (retract ?fase ?m ?p)
+   (retract ?fase ?p-cons)
+   (do-for-all-facts ((?m puede-mover)) TRUE (retract ?m))
+   (do-for-all-facts ((?r rastreo)) TRUE (retract ?r))
+   
    (assert (pases-consecutivos 0))
    (assert (juego (fase peticion)))
 )
