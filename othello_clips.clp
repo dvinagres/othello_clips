@@ -29,7 +29,7 @@
 )
 
 (deftemplate juego
-    (slot fase (allowed-values inicializacion peticion validacion ejecucion cambio-turno fin-juego))
+    (slot fase (allowed-values inicializacion analisis peticion validacion ejecucion cambio-turno fin-juego))
 )
 
 (deftemplate direccion
@@ -312,4 +312,68 @@
    (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
    =>
    (assert (rastreo-analisis (+ ?f (* 2 ?df)) (+ ?c (* 2 ?dc)) ?df ?dc))
+)
+
+; 2. El rastreador avanza por la línea de rivales
+(defrule propagar-analisis
+   (juego (fase analisis))
+   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   (turno (jugador ?p))
+   (tablero (fila ?f) (columna ?c) (estado ?r&~vacia&~?p))
+   =>
+   (retract ?rastreo)
+   (assert (rastreo-analisis (+ ?f ?df) (+ ?c ?dc) ?df ?dc))
+)
+
+; 3. Si llega a una ficha propia, hay movimiento posible
+(defrule exito-analisis
+   (juego (fase analisis))
+   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   (turno (jugador ?p))
+   (tablero (fila ?f) (columna ?c) (estado ?p))
+   =>
+   (retract ?rastreo)
+   (assert (puede-mover))
+)
+
+; 4. Limpiar los rastreadores que se salen del tablero o caen en vacío
+(defrule limpiar-analisis
+   (declare (salience -5))
+   (juego (fase analisis))
+   ?rastreo <- (rastreo-analisis ?f ?c ?df ?dc)
+   (or (not (tablero (fila ?f) (columna ?c)))
+       (tablero (fila ?f) (columna ?c) (estado vacia)))
+   =>
+   (retract ?rastreo)
+)
+
+; 5A. RESOLUCIÓN: Si hay movimiento, pedir coordenadas y resetear pases
+(defrule analisis-con-movimientos
+   (declare (salience -10))
+   ?fase <- (juego (fase analisis))
+   ?m <- (puede-mover)
+   ?p <- (pases-consecutivos ?n)
+   =>
+   (retract ?fase ?m ?p)
+   (assert (pases-consecutivos 0))
+   (assert (juego (fase peticion)))
+)
+
+; 5B. RESOLUCIÓN: Si no hay movimiento, pasar turno o acabar
+(defrule analisis-sin-movimientos
+   (declare (salience -10))
+   ?fase <- (juego (fase analisis))
+   (not (puede-mover))
+   ?p <- (pases-consecutivos ?n)
+   (turno (jugador ?color))
+   =>
+   (retract ?fase ?p)
+   (if (= ?n 1) then
+       (printout t "FIN DEL JUEGO: Ningun jugador tiene movimientos validos." crlf)
+       (assert (juego (fase fin-juego)))
+   else
+       (printout t "AVISO: " ?color " no tiene movimientos. Pasa turno." crlf)
+       (assert (pases-consecutivos 1))
+       (assert (juego (fase cambio-turno)))
+   )
 )
