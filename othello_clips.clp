@@ -390,3 +390,26 @@
     (modify ?j-rival (cantidad_fichas (- ?c-rival 1)))
     (printout t "AVISO: " ?color " no tiene fichas en mano. El rival le cede una." crlf)
 )
+
+; DETERMINAR GANADOR
+(defrule determinar-ganador
+   (juego (fase fin-juego))
+   =>
+   ; Guardar todos los hechos que coinciden en una lista y medir su longitud
+   (bind ?n (length$ (find-all-facts ((?t tablero)) (eq ?t:estado negra))))
+   (bind ?b (length$ (find-all-facts ((?t tablero)) (eq ?t:estado blanca))))
+   
+   (printout t crlf "--- RECUENTO FINAL ---" crlf)
+   (printout t "Fichas NEGRAS: " ?n crlf)
+   (printout t "Fichas BLANCAS: " ?b crlf)
+   
+   (if (> ?n ?b) then
+       (printout t "¡GANAN LAS NEGRAS!" crlf)
+   else (if (> ?b ?n) then
+       (printout t "¡GANAN LAS BLANCAS!" crlf)
+   else
+       (printout t "¡EMPATE!" crlf)))
+   
+   (printout t "----------------------" crlf)
+   (halt)
+)
