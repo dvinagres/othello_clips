@@ -29,7 +29,29 @@
 )
 
 (deftemplate juego
-    (slot fase (allowed-values inicializacion peticion validacion ejecucion cambio-turno))
+    (slot fase (allowed-values inicializacion analisis peticion validacion ejecucion cambio-turno fin-juego))
+)
+
+(deftemplate direccion
+    (slot df (type INTEGER)) ; Desplazamiento de fila (-1, 0, 1)
+    (slot dc (type INTEGER)) ; Desplazamiento de columna (-1, 0, 1)
+)
+
+(deftemplate captura-confirmada
+    (slot fila-orig)
+    (slot col-orig)
+    (slot fila-fin)
+    (slot col-fin)
+    (slot df)
+    (slot dc)
+    (slot color)
+)
+
+(deftemplate rastreo
+   (slot f (type INTEGER))
+   (slot c (type INTEGER))
+   (slot df (type INTEGER))
+   (slot dc (type INTEGER))
 )
 
 ; =========================================
@@ -37,11 +59,18 @@
 ; =========================================
 
 (deffacts estado-inicial
-    (configuracion (tamano 8))
+    (configuracion (tamano 4))
     (turno (jugador negra))
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
     (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
+    (pases-consecutivos 0)
+)
+
+(deffacts vectores-direccion
+    (direccion (df -1) (dc -1)) (direccion (df -1) (dc  0)) (direccion (df -1) (dc  1))
+    (direccion (df  0) (dc -1))                            (direccion (df  0) (dc  1))
+    (direccion (df  1) (dc -1)) (direccion (df  1) (dc  0)) (direccion (df  1) (dc  1))
 )
 
 ; =========================================
@@ -99,7 +128,7 @@
    (printout t "TABLERO " ?n "x" ?n " INICIALIZADO" crlf)
    (mostrar-tablero ?n)
    (retract ?fase)
-   (assert (juego (fase peticion)))
+   (assert (juego (fase analisis)))
 )
 
 (defrule pedir-movimiento-humano
@@ -117,22 +146,53 @@
     (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c)))
     
     (retract ?fase)
-    (assert (juego (fase ejecucion))) 
+    (assert (juego (fase validacion))) 
 )
 
-(defrule ejecutar-movimiento-simple
-    ?fase <- (juego (fase ejecucion))
-    ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
-    ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
-    =>
-    (retract ?i ?fase)
-    (modify ?casilla (estado ?color))
-    (printout t "Movimiento realizado en " ?f "," ?c crlf)
-    (assert (juego (fase cambio-turno))) 
+; 1. COLOCAR: Pone la ficha y marca el inicio del volteo
+(defrule colocar-ficha-actual
+   (declare (salience 10)) ; Mayor prioridad para asegurar que la ficha existe
+   ?fase <- (juego (fase ejecucion))
+   ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
+   ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
+   ?jug <- (jugador (color ?color) (cantidad_fichas ?can))
+   =>
+   (retract ?i)
+   (modify ?casilla (estado ?color))
+   (modify ?jug (cantidad_fichas (- ?can 1)))
+   (printout t "Ficha " ?color " colocada en " ?f "," ?c crlf)
+)
+
+; 2. VOLTEAR: Reacción en cadena (Efecto Dominó)
+; Esta regla se dispara para cada dirección confirmada y va saltando ficha a ficha
+(defrule aplicar-volteo
+   (juego (fase ejecucion))
+   (captura-confirmada (fila-orig ?fo) (col-orig ?co) 
+                       (fila-fin ?ff) (col-fin ?cf) 
+                       (df ?df) (dc ?dc) (color ?p))
+   
+   ; Buscamos fichas del rival en el tablero
+   ?t <- (tablero (fila ?fr) (columna ?cr) (estado ~vacia&~?p))
+   
+   ; TEST GEOMÉTRICO: ¿Está la ficha rival en la línea y entre los dos extremos?
+   (test (and
+      ; 1. ¿Está alineada con el movimiento? (Producto cruzado = 0)
+      (= (* (- ?fr ?fo) ?dc) (* (- ?cr ?co) ?df))
+      ; 2. ¿Está en la dirección correcta?
+      (>= (* (- ?fr ?fo) ?df) 0)
+      (>= (* (- ?cr ?co) ?dc) 0)
+      ; 3. ¿Está antes de llegar a la ficha que cierra el sándwich?
+      (or (< (abs (- ?fr ?fo)) (abs (- ?ff ?fo)))
+          (< (abs (- ?cr ?co)) (abs (- ?cf ?co))))
+   ))
+   =>
+   (modify ?t (estado ?p))
+   (printout t "Ficha capturada en [" ?fr "," ?cr "]" crlf)
 )
 
 (defrule error-casilla-ocupada
-    ?fase <- (juego (fase ejecucion))
+    (declare (salience 20))
+    ?fase <- (juego (fase validacion))
     ?i <- (intento-movimiento (fila ?f) (columna ?c))
     (tablero (fila ?f) (columna ?c) (estado ?estado&~vacia))
     =>
@@ -142,7 +202,8 @@
 ) 
 
 (defrule error-coordenadas-invalidas
-    ?fase <- (juego (fase ejecucion))
+    (declare (salience 20))
+    ?fase <- (juego (fase validacion))
     ?i <- (intento-movimiento (fila ?f) (columna ?c))
     (not (tablero (fila ?f) (columna ?c)))
     =>
@@ -157,10 +218,202 @@
     (configuracion (tamano ?n))
     =>
     (retract ?t ?fase)
-    (if (eq ?color negra) 
-        then (assert (turno (jugador blanca)))
-        else (assert (turno (jugador negra)))
-    )
-    (mostrar-tablero ?n)
-    (assert (juego (fase peticion))) 
+    (bind ?nuevo-color (if (eq ?color negra) then blanca else negra))
+    (assert (turno (jugador ?nuevo-color)))
+    
+    (printout t crlf "--- TURNO DE " ?nuevo-color " ---" crlf)
+    (mostrar-tablero ?n) ; <--- Mostramos aquí para que el jugador vea el estado actual
+    (assert (juego (fase analisis))) 
+)
+
+; 1. Si el vecino en una dirección es del rival, lanzamos un rastreador
+(defrule iniciar-rastreo
+   (juego (fase validacion))
+   (intento-movimiento (color ?propio) (fila ?f) (columna ?c))
+   (direccion (df ?df) (dc ?dc))
+   ; El vecino inmediato debe ser del rival
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?rival&~vacia&~?propio))
+   =>
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
+)
+
+; 2. El rastreador avanza mientras encuentre fichas del rival
+(defrule propagar-rastreo
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc))
+   (intento-movimiento (color ?propio))
+   (tablero (fila ?f) (columna ?c) (estado ?rival&~vacia&~?propio))
+   =>
+   (modify ?r (f (+ ?f ?df)) (c (+ ?c ?dc)))
+)
+
+; 3. Si el rastreador encuentra una ficha propia, ¡sándwich confirmado! 
+(defrule confirmar-captura
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f_fin) (c ?c_fin) (df ?df) (dc ?dc))
+   (intento-movimiento (color ?propio) (fila ?f_orig) (columna ?c_orig))
+   (tablero (fila ?f_fin) (columna ?c_fin) (estado ?propio))
+   =>
+   (retract ?r)
+   (assert (captura-confirmada (fila-orig ?f_orig) (col-orig ?c_orig) 
+                               (fila-fin ?f_fin) (col-fin ?c_fin)
+                               (df ?df) (dc ?dc) (color ?propio)))
+)
+
+; 4. Si el rastreador se sale del tablero o encuentra un hueco, se borra
+(defrule limpiar-rastreo-fallido
+   (declare (salience -5))
+   (juego (fase validacion))
+   ?r <- (rastreo (f ?f) (c ?c))
+   (or (not (tablero (fila ?f) (columna ?c)))
+       (tablero (fila ?f) (columna ?c) (estado vacia)))
+   =>
+   (retract ?r)
+)
+
+(defrule error-movimiento-ilegal
+    (declare (salience -20)) ; Se ejecuta al final de la validacion
+    ?fase <- (juego (fase validacion))
+    ?i <- (intento-movimiento (fila ?f) (columna ?c))
+    (not (captura-confirmada))
+    =>
+    (retract ?fase ?i)
+    (printout t "ERROR: Movimiento ilegal. Debe capturar al menos una ficha rival." crlf)
+    (assert (juego (fase peticion)))
+)
+
+(defrule validar-exito-y-ejecutar
+   (declare (salience -10))
+   ?fase <- (juego (fase validacion))
+   (captura-confirmada) ; Existe al menos una dirección válida
+   =>
+   (retract ?fase)
+   (assert (juego (fase ejecucion)))
+)
+
+; 3. FINALIZAR: Limpia las direcciones y cambia el turno
+(defrule finalizar-fase-ejecucion
+   (declare (salience -10))
+   ?fase <- (juego (fase ejecucion))
+   (not (intento-movimiento))
+   =>
+   (retract ?fase)
+   (do-for-all-facts ((?c captura-confirmada)) TRUE (retract ?c))
+   (assert (juego (fase cambio-turno)))
+)
+
+; 1. Lanza rastreadores desde todas las casillas vacías hacia los rivales
+(defrule iniciar-analisis
+   (juego (fase analisis))
+   (turno (jugador ?p))
+   (not (puede-mover))
+   (tablero (fila ?f) (columna ?c) (estado vacia))
+   (direccion (df ?df) (dc ?dc))
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
+   =>
+   ; AJUSTE: Usamos slots (f ... c ... df ... dc ...)
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
+)
+
+; 2. El rastreador avanza por la línea de rivales
+(defrule propagar-analisis
+   (juego (fase analisis))
+   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc)) ; AJUSTE: Slots
+   (turno (jugador ?p))
+   (tablero (fila ?f) (columna ?c) (estado ?r&~vacia&~?p))
+   =>
+   ; AJUSTE: Usamos modify para avanzar slots
+   (modify ?rastreo (f (+ ?f ?df)) (c (+ ?c ?dc)))
+)
+
+; 3. Si llega a una ficha propia, hay movimiento posible
+(defrule exito-analisis
+   (juego (fase analisis))
+   ?rastreo <- (rastreo (f ?f) (c ?c)) ; AJUSTE: Slots
+   (turno (jugador ?p))
+   (tablero (fila ?f) (columna ?c) (estado ?p))
+   =>
+   (retract ?rastreo)
+   (assert (puede-mover))
+)
+
+; 4. Limpiar los rastreadores que se salen del tablero o caen en vacío
+(defrule limpiar-analisis
+   (declare (salience -5))
+   (juego (fase analisis))
+   ?rastreo <- (rastreo (f ?f) (c ?c)) ; AJUSTE: Slots
+   (or (not (tablero (fila ?f) (columna ?c)))
+       (tablero (fila ?f) (columna ?c) (estado vacia)))
+   =>
+   (retract ?rastreo)
+)
+
+; 5A. RESOLUCIÓN: Si hay movimiento, pedir coordenadas y resetear pases
+(defrule analisis-con-movimientos
+   (declare (salience -10))
+   ?fase <- (juego (fase analisis))
+   (puede-mover)
+   ?p-cons <- (pases-consecutivos ?n)
+   =>
+   (retract ?fase ?p-cons)
+   (do-for-all-facts ((?m puede-mover)) TRUE (retract ?m))
+   (do-for-all-facts ((?r rastreo)) TRUE (retract ?r))
+   
+   (assert (pases-consecutivos 0))
+   (assert (juego (fase peticion)))
+)
+
+; 5B. RESOLUCIÓN: Si no hay movimiento, pasar turno o acabar
+(defrule analisis-sin-movimientos
+   (declare (salience -10))
+   ?fase <- (juego (fase analisis))
+   (not (puede-mover))
+   ?p <- (pases-consecutivos ?n)
+   (turno (jugador ?color))
+   =>
+   (retract ?fase ?p)
+   (if (= ?n 1) then
+       (printout t "FIN DEL JUEGO: Ningun jugador tiene movimientos validos." crlf)
+       (assert (juego (fase fin-juego)))
+   else
+       (printout t "AVISO: " ?color " no tiene movimientos. Pasa turno." crlf)
+       (assert (pases-consecutivos 1))
+       (assert (juego (fase cambio-turno)))
+   )
+)
+
+; QUEDARSE SIN FICHAS
+(defrule ceder-ficha
+    (declare (salience 50)) ; Prioridad alta para que ocurra antes de leer el teclado
+    (juego (fase peticion))
+    (turno (jugador ?color))
+    ?j-actual <- (jugador (color ?color) (cantidad_fichas 0))
+    ?j-rival <- (jugador (color ~?color) (cantidad_fichas ?c-rival&:(> ?c-rival 0)))
+    =>
+    (modify ?j-actual (cantidad_fichas 1))
+    (modify ?j-rival (cantidad_fichas (- ?c-rival 1)))
+    (printout t "AVISO: " ?color " no tiene fichas en mano. El rival le cede una." crlf)
+)
+
+; DETERMINAR GANADOR
+(defrule determinar-ganador
+   (juego (fase fin-juego))
+   =>
+   ; Guardar todos los hechos que coinciden en una lista y medir su longitud
+   (bind ?n (length$ (find-all-facts ((?t tablero)) (eq ?t:estado negra))))
+   (bind ?b (length$ (find-all-facts ((?t tablero)) (eq ?t:estado blanca))))
+   
+   (printout t crlf "--- RECUENTO FINAL ---" crlf)
+   (printout t "Fichas NEGRAS: " ?n crlf)
+   (printout t "Fichas BLANCAS: " ?b crlf)
+   
+   (if (> ?n ?b) then
+       (printout t "¡GANAN LAS NEGRAS!" crlf)
+   else (if (> ?b ?n) then
+       (printout t "¡GANAN LAS BLANCAS!" crlf)
+   else
+       (printout t "¡EMPATE!" crlf)))
+   
+   (printout t "----------------------" crlf)
+   (halt)
 )
