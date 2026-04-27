@@ -29,7 +29,7 @@
 )
 
 (deftemplate juego
-    (slot fase (allowed-values inicializacion peticion validacion ejecucion cambio-turno))
+    (slot fase (allowed-values inicializacion peticion validacion ejecucion cambio-turno fin-juego))
 )
 
 (deftemplate direccion
@@ -64,6 +64,7 @@
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
     (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
+    (pases-consecutivos 0)
 )
 
 (deffacts vectores-direccion
@@ -127,7 +128,7 @@
    (printout t "TABLERO " ?n "x" ?n " INICIALIZADO" crlf)
    (mostrar-tablero ?n)
    (retract ?fase)
-   (assert (juego (fase peticion)))
+   (assert (juego (fase analisis)))
 )
 
 (defrule pedir-movimiento-humano
@@ -222,7 +223,7 @@
         else (assert (turno (jugador negra)))
     )
     (mostrar-tablero ?n)
-    (assert (juego (fase peticion))) 
+    (assert (juego (fase analisis))) 
 )
 
 ; 1. Si el vecino en una dirección es del rival, lanzamos un rastreador
@@ -299,4 +300,16 @@
    (retract ?fase)
    (do-for-all-facts ((?c captura-confirmada)) TRUE (retract ?c))
    (assert (juego (fase cambio-turno)))
+)
+
+; PASAR TURNO Y FIN DE JUEGO
+; 1. Lanza rastreadores desde todas las casillas vacías hacia los rivales
+(defrule iniciar-analisis
+   (juego (fase analisis))
+   (turno (jugador ?p))
+   (tablero (fila ?f) (columna ?c) (estado vacia))
+   (direccion (df ?df) (dc ?dc))
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
+   =>
+   (assert (rastreo-analisis (+ ?f (* 2 ?df)) (+ ?c (* 2 ?dc)) ?df ?dc))
 )
