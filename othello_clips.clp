@@ -377,3 +377,16 @@
        (assert (juego (fase cambio-turno)))
    )
 )
+
+; QUEDARSE SIN FICHAS
+(defrule ceder-ficha
+    (declare (salience 50)) ; Prioridad alta para que ocurra antes de leer el teclado
+    (juego (fase peticion))
+    (turno (jugador ?color))
+    ?j-actual <- (jugador (color ?color) (cantidad_fichas 0))
+    ?j-rival <- (jugador (color ~?color) (cantidad_fichas ?c-rival&:(> ?c-rival 0)))
+    =>
+    (modify ?j-actual (cantidad_fichas 1))
+    (modify ?j-rival (cantidad_fichas (- ?c-rival 1)))
+    (printout t "AVISO: " ?color " no tiene fichas en mano. El rival le cede una." crlf)
+)
