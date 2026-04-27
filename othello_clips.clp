@@ -52,6 +52,14 @@
    (slot c (type INTEGER))
    (slot df (type INTEGER))
    (slot dc (type INTEGER))
+   (slot orig-f (type INTEGER)) ; Casilla vacía donde empezó el rastreo
+   (slot orig-c (type INTEGER))
+)
+
+(deftemplate posible-jugada
+   (slot fila)
+   (slot columna)
+   (slot puntuacion (default 0))
 )
 
 ; =========================================
@@ -62,7 +70,7 @@
     (configuracion (tamano 4))
     (turno (jugador negra))
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
-    (jugador (color blanca) (tipo humano) (cantidad_fichas 30))
+    (jugador (color blanca) (tipo maquina) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
     (pases-consecutivos 0)
 )
@@ -223,7 +231,8 @@
     
     (printout t crlf "--- TURNO DE " ?nuevo-color " ---" crlf)
     (mostrar-tablero ?n) ; <--- Mostramos aquí para que el jugador vea el estado actual
-    (assert (juego (fase analisis))) 
+    (do-for-all-facts ((?j posible-jugada)) TRUE (retract ?j))
+    (assert (juego (fase analisis)))
 )
 
 ; 1. Si el vecino en una dirección es del rival, lanzamos un rastreador
@@ -306,13 +315,12 @@
 (defrule iniciar-analisis
    (juego (fase analisis))
    (turno (jugador ?p))
-   (not (puede-mover))
    (tablero (fila ?f) (columna ?c) (estado vacia))
    (direccion (df ?df) (dc ?dc))
    (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
    =>
-   ; AJUSTE: Usamos slots (f ... c ... df ... dc ...)
-   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
+   ; Guardamos el origen (orig-f, orig-c) para saber qué casilla estamos evaluando
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc) (orig-f ?f) (orig-c ?c)))
 )
 
 ; 2. El rastreador avanza por la línea de rivales
@@ -329,12 +337,16 @@
 ; 3. Si llega a una ficha propia, hay movimiento posible
 (defrule exito-analisis
    (juego (fase analisis))
-   ?rastreo <- (rastreo (f ?f) (c ?c)) ; AJUSTE: Slots
+   ?rastreo <- (rastreo (orig-f ?f) (orig-c ?c) (f ?rf) (c ?rc))
    (turno (jugador ?p))
-   (tablero (fila ?f) (columna ?c) (estado ?p))
+   (tablero (fila ?rf) (columna ?rc) (estado ?p))
    =>
    (retract ?rastreo)
    (assert (puede-mover))
+   ; Si no existía ya esta jugada posible, la creamos
+   (do-for-fact ((?j posible-jugada)) (and (= ?j:fila ?f) (= ?j:columna ?c))
+      (return))
+   (assert (posible-jugada (fila ?f) (columna ?c)))
 )
 
 ; 4. Limpiar los rastreadores que se salen del tablero o caen en vacío
@@ -416,4 +428,56 @@
    
    (printout t "----------------------" crlf)
    (halt)
+)
+
+; 1. Evaluar esquinas (Máxima prioridad)
+(defrule evaluar-esquinas
+   (juego (fase peticion))
+   (turno (jugador ?p))
+   (jugador (color ?p) (tipo maquina))
+   ?j <- (posible-jugada (fila ?f) (columna ?c) (puntuacion 0))
+   (configuracion (tamano ?n))
+   (test (or (and (= ?f 1) (= ?c 1)) (and (= ?f 1) (= ?c ?n))
+             (and (= ?f ?n) (= ?c 1)) (and (= ?f ?n) (= ?c ?n))))
+   =>
+   (modify ?j (puntuacion 50))
+)
+
+; 2. Evaluar bordes
+(defrule evaluar-bordes
+   (juego (fase peticion))
+   (turno (jugador ?p))
+   (jugador (color ?p) (tipo maquina))
+   ?j <- (posible-jugada (fila ?f) (columna ?c) (puntuacion 0))
+   (configuracion (tamano ?n))
+   (test (or (= ?f 1) (= ?f ?n) (= ?c 1) (= ?c ?n)))
+   =>
+   (modify ?j (puntuacion 10))
+)
+
+; 3. El resto de casillas (Puntuación base)
+(defrule evaluar-normal
+   (juego (fase peticion))
+   (turno (jugador ?p))
+   (jugador (color ?p) (tipo maquina))
+   ?j <- (posible-jugada (puntuacion 0))
+   =>
+   (modify ?j (puntuacion 1))
+)
+
+; 4. ELEGIR JUGADA: La IA elige la que tenga más puntos
+(defrule maquina-elige-jugada
+   (declare (salience -10)) ; Esperamos a que todas estén puntuadas
+   ?fase <- (juego (fase peticion))
+   (turno (jugador ?p))
+   (jugador (color ?p) (tipo maquina))
+   ?mejor <- (posible-jugada (fila ?f) (columna ?c) (puntuacion ?pmax))
+   ; No hay otra jugada con más puntuación que esta
+   (not (posible-jugada (puntuacion ?p2&:(> ?p2 ?pmax))))
+   =>
+   (printout t "La IA (" ?p ") elige mover a: " ?f "," ?c " (Puntos: " ?pmax ")" crlf)
+   (assert (intento-movimiento (color ?p) (fila ?f) (columna ?c)))
+   (retract ?fase)
+   (do-for-all-facts ((?j posible-jugada)) TRUE (retract ?j)) ; Limpiamos jugadas
+   (assert (juego (fase validacion)))
 )
