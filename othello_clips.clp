@@ -148,44 +148,45 @@
     (assert (juego (fase validacion))) 
 )
 
-; 1. COLOCAR: Pone la ficha y BORRA el intento para evitar el bucle infinito
+; 1. COLOCAR: Pone la ficha y marca el inicio del volteo
 (defrule colocar-ficha-actual
-   (declare (salience 5))
+   (declare (salience 10)) ; Mayor prioridad para asegurar que la ficha existe
    ?fase <- (juego (fase ejecucion))
    ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
    ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
    ?jug <- (jugador (color ?color) (cantidad_fichas ?can))
    =>
-   (retract ?i) ; <--- CRITICO: Borramos el intento ya
+   (retract ?i)
    (modify ?casilla (estado ?color))
    (modify ?jug (cantidad_fichas (- ?can 1)))
    (printout t "Ficha " ?color " colocada en " ?f "," ?c crlf)
-   ; Dejamos la fase en ejecucion para que actúe el volteo
 )
 
-; 2. VOLTEAR: Solo actúa sobre fichas que son del RIVAL actualmente
+; 2. VOLTEAR: Reacción en cadena (Efecto Dominó)
+; Esta regla se dispara para cada dirección confirmada y va saltando ficha a ficha
 (defrule aplicar-volteo
    (juego (fase ejecucion))
    (captura-confirmada (fila-orig ?fo) (col-orig ?co) 
                        (fila-fin ?ff) (col-fin ?cf) 
                        (df ?df) (dc ?dc) (color ?p))
-   ; Buscamos fichas que NO sean del color que captura
+   
+   ; Buscamos fichas del rival en el tablero
    ?t <- (tablero (fila ?fr) (columna ?cr) (estado ~vacia&~?p))
    
-   ; TEST: ¿Está la ficha rival en el segmento entre el origen y el fin?
+   ; TEST GEOMÉTRICO: ¿Está la ficha rival en la línea y entre los dos extremos?
    (test (and
-      ; 1. ¿Está en la línea recta correcta?
+      ; 1. ¿Está alineada con el movimiento? (Producto cruzado = 0)
       (= (* (- ?fr ?fo) ?dc) (* (- ?cr ?co) ?df))
-      ; 2. ¿Está en la dirección de avance?
+      ; 2. ¿Está en la dirección correcta?
       (>= (* (- ?fr ?fo) ?df) 0)
       (>= (* (- ?cr ?co) ?dc) 0)
-      ; 3. ¿Está ANTES de llegar a la ficha que cierra el sándwich?
+      ; 3. ¿Está antes de llegar a la ficha que cierra el sándwich?
       (or (< (abs (- ?fr ?fo)) (abs (- ?ff ?fo)))
           (< (abs (- ?cr ?co)) (abs (- ?cf ?co))))
    ))
    =>
    (modify ?t (estado ?p))
-   (printout t "Ficha capturada en " ?fr "," ?cr crlf)
+   (printout t "Ficha capturada en [" ?fr "," ?cr "]" crlf)
 )
 
 (defrule error-casilla-ocupada
@@ -270,7 +271,7 @@
 )
 
 (defrule error-movimiento-ilegal
-    (declare (salience -10)) ; Se ejecuta al final de la validacion
+    (declare (salience -20)) ; Se ejecuta al final de la validacion
     ?fase <- (juego (fase validacion))
     ?i <- (intento-movimiento (fila ?f) (columna ?c))
     (not (captura-confirmada))
@@ -281,6 +282,7 @@
 )
 
 (defrule validar-exito-y-ejecutar
+   (declare (salience -10))
    ?fase <- (juego (fase validacion))
    (captura-confirmada) ; Existe al menos una dirección válida
    =>
