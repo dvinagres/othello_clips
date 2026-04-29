@@ -6,6 +6,7 @@
     (slot fila (type INTEGER))
     (slot columna (type INTEGER))
     (slot estado (type SYMBOL) (allowed-values vacia negra blanca))
+    (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate configuracion
@@ -14,6 +15,7 @@
 
 (deftemplate turno
     (slot jugador (type SYMBOL) (allowed-values negra blanca))
+    (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate jugador
@@ -26,10 +28,12 @@
     (slot color (type SYMBOL))
     (slot fila (type INTEGER))
     (slot columna (type INTEGER))
+    (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate juego
-    (slot fase (allowed-values inicializacion analisis peticion validacion ejecucion cambio-turno fin-juego))
+    (slot fase (allowed-values inicializacion analisis peticion validacion ejecucion cambio-turno fin-juego simulacion))
+    (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate direccion
@@ -45,6 +49,7 @@
     (slot df)
     (slot dc)
     (slot color)
+    (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate rastreo
@@ -52,14 +57,31 @@
    (slot c (type INTEGER))
    (slot df (type INTEGER))
    (slot dc (type INTEGER))
-   (slot orig-f (type INTEGER)) ; Casilla vacía donde empezó el rastreo
+   (slot orig-f (type INTEGER)) 
    (slot orig-c (type INTEGER))
+   (slot nivel (type INTEGER) (default 0))
 )
 
 (deftemplate posible-jugada
    (slot fila)
    (slot columna)
    (slot puntuacion (default 0))
+   (slot nivel (type INTEGER) (default 0))
+)
+
+(deftemplate nodo
+   (slot nivel (type INTEGER))
+   (slot padre-nivel (type INTEGER))
+   (slot alpha (type NUMBER) (default -10000))
+   (slot beta (type NUMBER) (default 10000))
+   (slot estado (allowed-values expandiendo evaluado finalizado))
+   (slot valor-elegido (type NUMBER))
+)
+
+(deftemplate simulacion-iniciada
+    (slot fila (type INTEGER))
+    (slot columna (type INTEGER))
+    (slot nivel (type INTEGER) (default 0))
 )
 
 ; =========================================
@@ -67,12 +89,13 @@
 ; =========================================
 
 (deffacts estado-inicial
-    (configuracion (tamano 4))
+    (configuracion (tamano 8))
     (turno (jugador negra))
     (jugador (color negra) (tipo humano) (cantidad_fichas 30))
     (jugador (color blanca) (tipo maquina) (cantidad_fichas 30))
     (juego (fase inicializacion)) ; Arrancamos en inicialización
     (pases-consecutivos 0)
+    (profundidad-maxima 3)
 )
 
 (deffacts vectores-direccion
@@ -98,7 +121,7 @@
         (printout t " " ?f " | ") 
         (loop-for-count (?c 1 ?tamano)
             (do-for-fact ((?casilla tablero)) 
-                (and (= ?casilla:fila ?f) (= ?casilla:columna ?c))
+                (and (= ?casilla:fila ?f) (= ?casilla:columna ?c) (= ?casilla:nivel 0))
                 (if (eq ?casilla:estado vacia) then (printout t "  | "))
                 (if (eq ?casilla:estado negra) then (printout t "N | "))
                 (if (eq ?casilla:estado blanca) then (printout t "B | "))
@@ -119,68 +142,65 @@
    ?fase <- (juego (fase inicializacion))
    (configuracion (tamano ?n))
    =>
-   (bind ?c1 (/ ?n 2))
-   (bind ?c2 (+ (/ ?n 2) 1)) 
-
+   (bind ?c1 (/ ?n 2)) (bind ?c2 (+ (/ ?n 2) 1)) 
    (loop-for-count (?f 1 ?n)
       (loop-for-count (?c 1 ?n)
-         (if (or (and (= ?f ?c1) (= ?c ?c1)) (and (= ?f ?c2) (= ?c ?c2))) then
-            (assert (tablero (fila ?f) (columna ?c) (estado blanca)))
-         else (if (or (and (= ?f ?c1) (= ?c ?c2)) (and (= ?f ?c2) (= ?c ?c1))) then
-            (assert (tablero (fila ?f) (columna ?c) (estado negra)))
-         else
-            (assert (tablero (fila ?f) (columna ?c) (estado vacia))))
-         )
+         (bind ?estado (if (or (and (= ?f ?c1) (= ?c ?c1)) (and (= ?f ?c2) (= ?c ?c2))) then blanca
+                        else (if (or (and (= ?f ?c1) (= ?c ?c2)) (and (= ?f ?c2) (= ?c ?c1))) then negra
+                        else vacia)))
+         (assert (tablero (fila ?f) (columna ?c) (estado ?estado) (nivel 0))) ; <--- NIVEL 0
       )
    )
-   (printout t "TABLERO " ?n "x" ?n " INICIALIZADO" crlf)
-   (mostrar-tablero ?n)
    (retract ?fase)
-   (assert (juego (fase analisis)))
+   (assert (juego (fase analisis) (nivel 0)))
+   (printout t "TABLERO INICIALIZADO" crlf)
+   (mostrar-tablero ?n)
 )
 
 (defrule pedir-movimiento-humano
-    ?fase <- (juego (fase peticion))
-    (configuracion (tamano ?n)) ; <--- Añadimos esto para saber el límite
-    (turno (jugador ?color-actual))
+    ?fase <- (juego (fase peticion) (nivel 0))
+    (configuracion (tamano ?n))
+    (turno (jugador ?color-actual) (nivel 0))
     (jugador (color ?color-actual) (tipo humano))
-    (not (intento-movimiento))
+    (not (intento-movimiento (nivel 0)))
     =>
-    (printout t "Turno de " ?color-actual ". Fila (1-" ?n "): ") ; <--- Usamos ?n
+    (printout t "Turno de " ?color-actual ". Fila (1-" ?n "): ")
     (bind ?f (integer (read))) 
-    (printout t "Columna (1-" ?n "): ") ; <--- Usamos ?n
+    (printout t "Columna (1-" ?n "): ")
     (bind ?c (integer (read)))
-    
-    (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c)))
-    
+    (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c) (nivel 0)))
     (retract ?fase)
-    (assert (juego (fase validacion))) 
+    (assert (juego (fase validacion) (nivel 0))) 
 )
 
 ; 1. COLOCAR: Pone la ficha y marca el inicio del volteo
 (defrule colocar-ficha-actual
-   (declare (salience 10)) ; Mayor prioridad para asegurar que la ficha existe
-   ?fase <- (juego (fase ejecucion))
-   ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c))
-   ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia))
+   (declare (salience 10))
+   ?fase <- (juego (fase ejecucion) (nivel ?n))
+   ?i <- (intento-movimiento (color ?color) (fila ?f) (columna ?c) (nivel ?n))
+   ?casilla <- (tablero (fila ?f) (columna ?c) (estado vacia) (nivel ?n))
    ?jug <- (jugador (color ?color) (cantidad_fichas ?can))
    =>
    (retract ?i)
    (modify ?casilla (estado ?color))
-   (modify ?jug (cantidad_fichas (- ?can 1)))
-   (printout t "Ficha " ?color " colocada en " ?f "," ?c crlf)
+
+   (if (= ?n 0) then
+       (modify ?jug (cantidad_fichas (- ?can 1)))
+       (printout t "Ficha " ?color " colocada en " ?f "," ?c crlf)
+   )
 )
 
 ; 2. VOLTEAR: Reacción en cadena (Efecto Dominó)
 ; Esta regla se dispara para cada dirección confirmada y va saltando ficha a ficha
+
 (defrule aplicar-volteo
-   (juego (fase ejecucion))
+   (juego (fase ejecucion) (nivel ?n)) ; <--- Añadido ?n
    (captura-confirmada (fila-orig ?fo) (col-orig ?co) 
                        (fila-fin ?ff) (col-fin ?cf) 
-                       (df ?df) (dc ?dc) (color ?p))
+                       (df ?df) (dc ?dc) (color ?p) (nivel ?n)) ; <--- Añadido ?n
    
    ; Buscamos fichas del rival en el tablero
-   ?t <- (tablero (fila ?fr) (columna ?cr) (estado ~vacia&~?p))
+   ?t <- (tablero (fila ?fr) (columna ?cr) (estado ~vacia&~?p) (nivel ?n)) ; <--- Añadido ?n
    
    ; TEST GEOMÉTRICO: ¿Está la ficha rival en la línea y entre los dos extremos?
    (test (and
@@ -188,14 +208,14 @@
       (= (* (- ?fr ?fo) ?dc) (* (- ?cr ?co) ?df))
       ; 2. ¿Está en la dirección correcta?
       (>= (* (- ?fr ?fo) ?df) 0)
-      (>= (* (- ?cr ?co) ?dc) 0)
+      (>= (* (- ?fr ?fo) ?dc) 0)
       ; 3. ¿Está antes de llegar a la ficha que cierra el sándwich?
       (or (< (abs (- ?fr ?fo)) (abs (- ?ff ?fo)))
           (< (abs (- ?cr ?co)) (abs (- ?cf ?co))))
    ))
    =>
    (modify ?t (estado ?p))
-   (printout t "Ficha capturada en [" ?fr "," ?cr "]" crlf)
+   (if (= ?n 0) then (printout t "Ficha capturada en [" ?fr "," ?cr "]" crlf)) ; Silencio en simulación
 )
 
 (defrule error-casilla-ocupada
@@ -221,132 +241,128 @@
 )
 
 (defrule realizar-cambio-turno
-    ?fase <- (juego (fase cambio-turno))
-    ?t <- (turno (jugador ?color))
-    (configuracion (tamano ?n))
+    ?fase <- (juego (fase cambio-turno) (nivel ?n))
+    ?t <- (turno (jugador ?color) (nivel ?n))
+    (configuracion (tamano ?tam))
     =>
     (retract ?t ?fase)
     (bind ?nuevo-color (if (eq ?color negra) then blanca else negra))
-    (assert (turno (jugador ?nuevo-color)))
-    
-    (printout t crlf "--- TURNO DE " ?nuevo-color " ---" crlf)
-    (mostrar-tablero ?n) ; <--- Mostramos aquí para que el jugador vea el estado actual
-    (do-for-all-facts ((?j posible-jugada)) TRUE (retract ?j))
-    (assert (juego (fase analisis)))
+    (assert (turno (jugador ?nuevo-color) (nivel ?n)))
+
+    (if (= ?n 0) then
+        (printout t crlf "--- TURNO DE " ?nuevo-color " ---" crlf)
+        (mostrar-tablero ?tam)
+    )
+    ; SOLO borramos las posibles jugadas del nivel actual
+    (do-for-all-facts ((?j posible-jugada)) (= ?j:nivel ?n) (retract ?j))
+    (assert (juego (fase analisis) (nivel ?n)))
 )
 
 ; 1. Si el vecino en una dirección es del rival, lanzamos un rastreador
 (defrule iniciar-rastreo
-   (juego (fase validacion))
-   (intento-movimiento (color ?propio) (fila ?f) (columna ?c))
+   (juego (fase validacion) (nivel ?n)) 
+   (intento-movimiento (color ?propio) (fila ?f) (columna ?c) (nivel ?n))
    (direccion (df ?df) (dc ?dc))
-   ; El vecino inmediato debe ser del rival
-   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?rival&~vacia&~?propio))
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?rival&~vacia&~?propio) (nivel ?n))
    =>
-   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc)))
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc) (orig-f ?f) (orig-c ?c) (nivel ?n)))
 )
 
 ; 2. El rastreador avanza mientras encuentre fichas del rival
 (defrule propagar-rastreo
-   (juego (fase validacion))
-   ?r <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc))
-   (intento-movimiento (color ?propio))
-   (tablero (fila ?f) (columna ?c) (estado ?rival&~vacia&~?propio))
+   (juego (fase validacion) (nivel ?n))
+   ?r <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc) (nivel ?n))
+   (intento-movimiento (color ?propio) (nivel ?n))
+   (tablero (fila ?f) (columna ?c) (estado ?rival&~vacia&~?propio) (nivel ?n))
    =>
    (modify ?r (f (+ ?f ?df)) (c (+ ?c ?dc)))
 )
 
 ; 3. Si el rastreador encuentra una ficha propia, ¡sándwich confirmado! 
 (defrule confirmar-captura
-   (juego (fase validacion))
-   ?r <- (rastreo (f ?f_fin) (c ?c_fin) (df ?df) (dc ?dc))
-   (intento-movimiento (color ?propio) (fila ?f_orig) (columna ?c_orig))
-   (tablero (fila ?f_fin) (columna ?c_fin) (estado ?propio))
+   (juego (fase validacion) (nivel ?n))
+   ?r <- (rastreo (f ?f_fin) (c ?c_fin) (df ?df) (dc ?dc) (nivel ?n))
+   (intento-movimiento (color ?propio) (fila ?f_orig) (columna ?c_orig) (nivel ?n))
+   (tablero (fila ?f_fin) (columna ?c_fin) (estado ?propio) (nivel ?n))
    =>
    (retract ?r)
    (assert (captura-confirmada (fila-orig ?f_orig) (col-orig ?c_orig) 
                                (fila-fin ?f_fin) (col-fin ?c_fin)
-                               (df ?df) (dc ?dc) (color ?propio)))
+                               (df ?df) (dc ?dc) (color ?propio) (nivel ?n)))
 )
 
 ; 4. Si el rastreador se sale del tablero o encuentra un hueco, se borra
 (defrule limpiar-rastreo-fallido
    (declare (salience -5))
-   (juego (fase validacion))
-   ?r <- (rastreo (f ?f) (c ?c))
-   (or (not (tablero (fila ?f) (columna ?c)))
-       (tablero (fila ?f) (columna ?c) (estado vacia)))
+   (juego (fase validacion) (nivel ?n))
+   ?r <- (rastreo (f ?f) (c ?c) (nivel ?n))
+   (or (not (tablero (fila ?f) (columna ?c) (nivel ?n)))
+       (tablero (fila ?f) (columna ?c) (estado vacia) (nivel ?n)))
    =>
    (retract ?r)
 )
 
 (defrule error-movimiento-ilegal
     (declare (salience -20)) ; Se ejecuta al final de la validacion
-    ?fase <- (juego (fase validacion))
-    ?i <- (intento-movimiento (fila ?f) (columna ?c))
-    (not (captura-confirmada))
+    ?fase <- (juego (fase validacion) (nivel ?n))
+    ?i <- (intento-movimiento (fila ?f) (columna ?c) (nivel ?n))
+    (not (captura-confirmada (nivel ?n)))
     =>
     (retract ?fase ?i)
-    (printout t "ERROR: Movimiento ilegal. Debe capturar al menos una ficha rival." crlf)
-    (assert (juego (fase peticion)))
+    (if (= ?n 0) then (printout t "ERROR: Movimiento ilegal. Debe capturar al menos una ficha rival." crlf))
+    (assert (juego (fase peticion) (nivel ?n)))
 )
 
 (defrule validar-exito-y-ejecutar
    (declare (salience -10))
-   ?fase <- (juego (fase validacion))
-   (captura-confirmada) ; Existe al menos una dirección válida
+   ?fase <- (juego (fase validacion) (nivel ?n))
+   (captura-confirmada (nivel ?n)) ; Existe al menos una dirección válida
    =>
    (retract ?fase)
-   (assert (juego (fase ejecucion)))
+   (assert (juego (fase ejecucion) (nivel ?n)))
 )
 
 ; 3. FINALIZAR: Limpia las direcciones y cambia el turno
 (defrule finalizar-fase-ejecucion
    (declare (salience -10))
-   ?fase <- (juego (fase ejecucion))
-   (not (intento-movimiento))
+   ?fase <- (juego (fase ejecucion) (nivel ?n))
+   (not (intento-movimiento (nivel ?n)))
    =>
    (retract ?fase)
-   (do-for-all-facts ((?c captura-confirmada)) TRUE (retract ?c))
-   (assert (juego (fase cambio-turno)))
+   (do-for-all-facts ((?c captura-confirmada)) (= ?c:nivel ?n) (retract ?c))
+   (assert (juego (fase cambio-turno) (nivel ?n)))
 )
 
 ; 1. Lanza rastreadores desde todas las casillas vacías hacia los rivales
 (defrule iniciar-analisis
-   (juego (fase analisis))
-   (turno (jugador ?p))
-   (tablero (fila ?f) (columna ?c) (estado vacia))
+   (juego (fase analisis) (nivel ?n))
+   (turno (jugador ?p) (nivel ?n))
+   (tablero (fila ?f) (columna ?c) (estado vacia) (nivel ?n))
    (direccion (df ?df) (dc ?dc))
-   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p))
+   (tablero (fila =(+ ?f ?df)) (columna =(+ ?c ?dc)) (estado ?r&~vacia&~?p) (nivel ?n))
    =>
-   ; Guardamos el origen (orig-f, orig-c) para saber qué casilla estamos evaluando
-   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc) (orig-f ?f) (orig-c ?c)))
+   (assert (rastreo (f (+ ?f (* 2 ?df))) (c (+ ?c (* 2 ?dc))) (df ?df) (dc ?dc) (orig-f ?f) (orig-c ?c) (nivel ?n)))
 )
 
 ; 2. El rastreador avanza por la línea de rivales
 (defrule propagar-analisis
-   (juego (fase analisis))
-   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc)) ; AJUSTE: Slots
-   (turno (jugador ?p))
-   (tablero (fila ?f) (columna ?c) (estado ?r&~vacia&~?p))
+   (juego (fase analisis) (nivel ?n))
+   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc) (nivel ?n))
+   (turno (jugador ?p) (nivel ?n))
+   (tablero (fila ?f) (columna ?c) (estado ~vacia&~?p) (nivel ?n))
    =>
-   ; AJUSTE: Usamos modify para avanzar slots
    (modify ?rastreo (f (+ ?f ?df)) (c (+ ?c ?dc)))
 )
 
 ; 3. Si llega a una ficha propia, hay movimiento posible
 (defrule exito-analisis
-   (juego (fase analisis))
-   ?rastreo <- (rastreo (orig-f ?f) (orig-c ?c) (f ?rf) (c ?rc))
-   (turno (jugador ?p))
-   (tablero (fila ?rf) (columna ?rc) (estado ?p))
+   (juego (fase analisis) (nivel ?n))
+   ?rastreo <- (rastreo (orig-f ?f) (orig-c ?c) (f ?rf) (c ?rc) (nivel ?n))
+   (turno (jugador ?p) (nivel ?n))
+   (tablero (fila ?rf) (columna ?rc) (estado ?p) (nivel ?n))
    =>
    (retract ?rastreo)
-   (assert (puede-mover))
-   ; Si no existía ya esta jugada posible, la creamos
-   (do-for-fact ((?j posible-jugada)) (and (= ?j:fila ?f) (= ?j:columna ?c))
-      (return))
-   (assert (posible-jugada (fila ?f) (columna ?c)))
+   (assert (posible-jugada (fila ?f) (columna ?c) (nivel ?n)))
 )
 
 ; 4. Limpiar los rastreadores que se salen del tablero o caen en vacío
@@ -361,37 +377,60 @@
 )
 
 ; 5A. RESOLUCIÓN: Si hay movimiento, pedir coordenadas y resetear pases
-(defrule analisis-con-movimientos
+(defrule analisis-con-movimientos-real
    (declare (salience -10))
-   ?fase <- (juego (fase analisis))
-   (puede-mover)
-   ?p-cons <- (pases-consecutivos ?n)
+   ?fase <- (juego (fase analisis) (nivel 0))
+   (exists (posible-jugada (nivel 0))) ; Usamos exists para evitar disparos duplicados
+   ?p-cons <- (pases-consecutivos ?c)
    =>
    (retract ?fase ?p-cons)
-   (do-for-all-facts ((?m puede-mover)) TRUE (retract ?m))
-   (do-for-all-facts ((?r rastreo)) TRUE (retract ?r))
-   
+   (do-for-all-facts ((?r rastreo)) (= ?r:nivel 0) (retract ?r))
    (assert (pases-consecutivos 0))
-   (assert (juego (fase peticion)))
+   (assert (juego (fase peticion) (nivel 0)))
 )
 
 ; 5B. RESOLUCIÓN: Si no hay movimiento, pasar turno o acabar
-(defrule analisis-sin-movimientos
+(defrule analisis-sin-movimientos-real
    (declare (salience -10))
-   ?fase <- (juego (fase analisis))
-   (not (puede-mover))
-   ?p <- (pases-consecutivos ?n)
-   (turno (jugador ?color))
+   ?fase <- (juego (fase analisis) (nivel 0))
+   (not (posible-jugada (nivel 0)))
+   ?p <- (pases-consecutivos ?pcount)
+   (turno (jugador ?color) (nivel 0))
    =>
    (retract ?fase ?p)
-   (if (= ?n 1) then
+   (if (= ?pcount 1) then
        (printout t "FIN DEL JUEGO: Ningun jugador tiene movimientos validos." crlf)
-       (assert (juego (fase fin-juego)))
+       (assert (juego (fase fin-juego) (nivel 0)))
    else
        (printout t "AVISO: " ?color " no tiene movimientos. Pasa turno." crlf)
        (assert (pases-consecutivos 1))
-       (assert (juego (fase cambio-turno)))
+       (assert (juego (fase cambio-turno) (nivel 0)))
    )
+)
+
+; --- RESOLUCIÓN PARA LA SIMULACIÓN DE LA IA (Nivel > 0) ---
+
+(defrule analisis-con-movimientos-sim
+   (declare (salience -10))
+   ?fase <- (juego (fase analisis) (nivel ?n&:(> ?n 0)))
+   (exists (posible-jugada (nivel ?n)))
+   =>
+   (retract ?fase)
+   (do-for-all-facts ((?r rastreo)) (= ?r:nivel ?n) (retract ?r))
+   (assert (juego (fase simulacion) (nivel ?n)))
+)
+
+(defrule evaluar-tablero-sin-movimientos-sim
+   (declare (salience 100))
+   ?fase <- (juego (fase analisis) (nivel ?n&:(> ?n 0)))
+   (not (posible-jugada (nivel ?n)))
+   ?nod <- (nodo (nivel ?n) (estado expandiendo))
+   =>
+   (retract ?fase)
+   ; Si no hay movimientos posibles en este futuro imaginario, se puntúa inmediatamente y se retrocede
+   (bind ?f-ia (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado blanca)))))
+   (bind ?f-hu (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado negra)))))
+   (modify ?nod (estado evaluado) (valor-elegido (- ?f-ia ?f-hu)))
 )
 
 ; QUEDARSE SIN FICHAS
@@ -481,3 +520,154 @@
    (do-for-all-facts ((?j posible-jugada)) TRUE (retract ?j)) ; Limpiamos jugadas
    (assert (juego (fase validacion)))
 )
+
+; INICIO ALPHA-BETA
+(defrule iniciar-simulacion-ia
+   ?fase <- (juego (fase peticion) (nivel 0))
+   (turno (jugador ?p) (nivel 0))
+   (jugador (color ?p) (tipo maquina))
+   =>
+   (retract ?fase)
+   (assert (juego (fase simulacion) (nivel 0)))
+   (assert (nodo (nivel 0) (padre-nivel -1) (estado expandiendo)))
+   (printout t "IA pensando..." crlf)
+)
+
+(defrule clonar-nivel-para-simulacion
+   (juego (fase simulacion) (nivel ?n))
+   (nodo (nivel ?n) (estado expandiendo))
+   (profundidad-maxima ?max)
+   (test (< ?n ?max))
+   ; Buscamos una jugada que queramos probar
+   ?j <- (posible-jugada (fila ?f) (columna ?c) (nivel ?n))
+   (not (simulacion-iniciada (fila ?f) (columna ?c) (nivel ?n)))
+   (turno (jugador ?color-actual) (nivel ?n))
+   =>
+   (bind ?nuevo-nivel (+ ?n 1))
+   ; Clonamos el tablero al completo para el nuevo nivel
+   (do-for-all-facts ((?t tablero)) (= ?t:nivel ?n)
+      (assert (tablero (fila ?t:fila) (columna ?t:columna) (estado ?t:estado) (nivel ?nuevo-nivel)))
+   )
+   
+   ; Mantenemos el turno original, inyectamos el movimiento y lanzamos la validación del motor
+   (assert (turno (jugador ?color-actual) (nivel ?nuevo-nivel)))
+   (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c) (nivel ?nuevo-nivel)))
+   (assert (juego (fase validacion) (nivel ?nuevo-nivel)))
+   
+   ; Marcamos que ya estamos probando esta jugada
+   (assert (simulacion-iniciada (fila ?f) (columna ?c) (nivel ?n)))
+   (assert (nodo (nivel ?nuevo-nivel) (padre-nivel ?n) (estado expandiendo)))
+)
+
+(defrule evaluar-tablero-hoja
+   (declare (salience 100))
+   (juego (fase simulacion) (nivel ?n))
+   (profundidad-maxima ?n) ; Solo evaluamos si estamos en el fondo
+   ?nod <- (nodo (nivel ?n) (estado expandiendo))
+   (turno (jugador ?rival) (nivel ?n)) ; El rival de este nivel
+   =>
+   ; Identificamos quién es la IA y quién el humano (suponiendo IA es blanca)
+   (bind ?color-ia blanca)
+   (bind ?color-humano negra)
+
+   ; Calculamos puntuación IA
+   (bind ?fichas-ia (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado ?color-ia)))))
+   ; Bonus esquinas IA (50 puntos extra por cada una)
+   (bind ?esquinas-ia (length$ (find-all-facts ((?t tablero)) 
+      (and (= ?t:nivel ?n) (eq ?t:estado ?color-ia)
+           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna 8))
+               (and (= ?t:fila 8) (= ?t:columna 1)) (and (= ?t:fila 8) (= ?t:columna 8)))))))
+   
+   ; Calculamos puntuación Humano
+   (bind ?fichas-hu (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado ?color-humano)))))
+   (bind ?esquinas-hu (length$ (find-all-facts ((?t tablero)) 
+      (and (= ?t:nivel ?n) (eq ?t:estado ?color-humano)
+           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna 8))
+               (and (= ?t:fila 8) (= ?t:columna 1)) (and (= ?t:fila 8) (= ?t:columna 8)))))))
+
+   ; Valor total: (Fichas + Bonus IA) - (Fichas + Bonus Humano)
+   (bind ?puntos (+ ?fichas-ia (* ?esquinas-ia 50)))
+   (bind ?puntos-rival (+ ?fichas-hu (* ?esquinas-hu 50)))
+   (bind ?valor-final (- ?puntos ?puntos-rival))
+
+   ; Actualizamos el nodo: ya está evaluado y tiene un valor
+   (modify ?nod (estado evaluado) (valor-elegido ?valor-final))
+)
+
+(defrule actualizar-padre-desde-hijo
+   (declare (salience 100))
+   ?hijo <- (nodo (nivel ?nh) (padre-nivel ?np) (estado evaluado|finalizado) (valor-elegido ?val))
+   ?padre <- (nodo (nivel ?np) (estado expandiendo) (alpha ?a) (beta ?b))
+   (turno (jugador ?jug-padre) (nivel ?np))
+   =>
+   (retract ?hijo)
+   
+   ; LIMPIEZA: Borramos el nivel inferior que ya no necesitamos
+   (do-for-all-facts ((?t tablero)) (= ?t:nivel ?nh) (retract ?t))
+   (do-for-all-facts ((?p posible-jugada)) (= ?p:nivel ?nh) (retract ?p))
+   (do-for-all-facts ((?s simulacion-iniciada)) (= ?s:nivel ?nh) (retract ?s))
+   (do-for-all-facts ((?j juego)) (= ?j:nivel ?nh) (retract ?j))
+   (do-for-all-facts ((?t turno)) (= ?t:nivel ?nh) (retract ?t))
+   
+   (if (eq ?jug-padre blanca)
+    then
+       (bind ?nuevo-alpha (max ?a ?val))
+       (modify ?padre (alpha ?nuevo-alpha) (valor-elegido ?nuevo-alpha))
+    else
+       (bind ?nuevo-beta (min ?b ?val))
+       (modify ?padre (beta ?nuevo-beta) (valor-elegido ?nuevo-beta))
+   )
+)
+
+(defrule poda-alpha-beta
+   (declare (salience 110)) ; Prioridad máxima para ahorrar tiempo
+   ?fase <- (juego (fase simulacion) (nivel ?n))
+   (nodo (nivel ?n) (alpha ?a) (beta ?b))
+   (test (>= ?a ?b)) ; Condición de poda: Alpha >= Beta
+   =>
+   (printout t "Poda en nivel " ?n ": rama descartada por Alpha-Beta." crlf)
+   ; Borramos todo lo relacionado con este nivel y volvemos al nivel anterior
+   (do-for-all-facts ((?t tablero)) (= ?t:nivel ?n) (retract ?t))
+   (do-for-all-facts ((?p posible-jugada)) (= ?p:nivel ?n) (retract ?p))
+   (modify ?fase (nivel (- ?n 1)))
+)
+
+(defrule finalizar-exploracion-nodo
+   (declare (salience -10))
+   ?nod <- (nodo (nivel ?n) (estado expandiendo))
+   ; Si NO existe una jugada que NO haya sido probada... entonces hemos terminado
+   (not (and (posible-jugada (fila ?f) (columna ?c) (nivel ?n))
+             (not (simulacion-iniciada (fila ?f) (columna ?c) (nivel ?n)))))
+   =>
+   (modify ?nod (estado finalizado))
+)
+
+(defrule registrar-mejor-movimiento-ia
+   (declare (salience 150))
+   ?padre <- (nodo (nivel 0) (estado expandiendo) (alpha ?a))
+   ?hijo <- (nodo (nivel 1) (padre-nivel 0) (estado evaluado|finalizado) (valor-elegido ?val))
+   (simulacion-iniciada (fila ?f) (columna ?c) (nivel 0)) ; Buscamos qué coordenadas eran
+   (test (> ?val ?a)) ; Si este hijo es mejor que lo que teníamos
+   =>
+   (assert (mejor-movida-encontrada ?f ?c ?val))
+)
+
+(defrule finalizar-ia-y-ejecutar-real
+   ?f <- (juego (fase simulacion) (nivel 0))
+   (nodo (nivel 0) (estado finalizado))
+   ?mejor <- (mejor-movida-encontrada ?f-real ?c-real ?v)
+   (not (mejor-movida-encontrada ? ? ?v2&:(> ?v2 ?v))) ; Es la mejor de las mejores
+   (turno (jugador ?p) (nivel 0))
+   =>
+   (printout t "IA decide mover a " ?f-real "," ?c-real " con valor esperado " ?v crlf)
+   
+   (do-for-all-facts ((?t tablero)) (> ?t:nivel 0) (retract ?t))
+   (do-for-all-facts ((?n nodo)) (> ?n:nivel 0) (retract ?n))
+   
+   ; VOLVEMOS AL JUEGO REAL
+   (retract ?f ?mejor)
+   (assert (intento-movimiento (color ?p) (fila ?f-real) (columna ?c-real)))
+   (assert (juego (fase validacion) (nivel 0)))
+)
+
+
