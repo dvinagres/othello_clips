@@ -4,6 +4,7 @@
 
 ; Representa una única casilla del tablero
 ; El atributo "nivel" es importante: el 0 es la partida real, y los niveles > 0 son las situaciones que crea el agente para pensar
+; De esta manera, podemos reutilizar las mismas reglas para: partida real o simulaciones Minimax
 (deftemplate tablero
     (slot fila (type INTEGER))
     (slot columna (type INTEGER))
@@ -41,6 +42,7 @@
 
 ; Controla el flujo de la partida 
 ; Define en qué estado (fase) nos encontramos y en qué profundidad (nivel) se está ejecutando
+; Controlamos la máquina de estados del sistema
 (deftemplate juego
     (slot fase (allowed-values inicializacion analisis peticion validacion ejecucion cambio-turno fin-juego simulacion))
     (slot nivel (type INTEGER) (default 0))
@@ -48,6 +50,7 @@
 
 ; Define los 8 vectores de movimiento (horizontal, vertical y diagonales)
 ; Se usa para que los "rastreadores" sepan hacia dónde tienen que ir
+; Así evitamos programar lógica separada para cada dirección
 (deftemplate direccion
     (slot df (type INTEGER)) ; Desplazamiento de fila (-1, 0, 1)
     (slot dc (type INTEGER)) ; Desplazamiento de columna (-1, 0, 1)
@@ -55,6 +58,7 @@
 
 ; Generado por la validación
 ; Guarda la coordenada de inicio, la coordenada final del "sándwich" y la dirección, datos imprescindibles para la regla de voltear fichas
+; Permite luego voltear fichas
 (deftemplate captura-confirmada
     (slot fila-orig)
     (slot col-orig)
@@ -68,6 +72,8 @@
 
 ; Es el "explorador" temporal que camina por el tablero buscando fichas 
 ; Se usa tanto para buscar huecos libres (análisis) como para confirmar "sándwiches" (validación)
+; Rastreo es una estructura de exploración temporal que analiza direcciones posibles, 
+; mientras que captura-confirmada representa una línea legal ya validada que será usada para ejecutar el volteo de fichas
 (deftemplate rastreo
    (slot f (type INTEGER))
    (slot c (type INTEGER))
@@ -114,7 +120,8 @@
 ; Aquí definimos las reglas del mundo: el tablero será de 8x8, el humano (negras) empieza primero,
 ; y ambos jugadores tienen 30 fichas en mano. 
 ; También inicializamos variables de control: 'pases-consecutivos' para saber cuándo 
-; se bloquea la partida, y 'profundidad-maxima' que marca hasta qué nivel "pensará" el agente (Minimax).
+; se bloquea la partida (Primer jugador sin movimientos → pasa turno, Segundo consecutivo → fin de partida)
+; y 'profundidad-maxima' que marca hasta qué nivel "pensará" el agente (Minimax). Limitamos porque explorar todo el árbol sería computacionalmente inviable.
 (deffacts estado-inicial
     (configuracion (tamano 8))
     (turno (jugador negra))
@@ -345,6 +352,8 @@
 ; dispararse 5 veces y colapsaría el flujo.
 ; Además, como el jugador SÍ puede mover, reiniciamos el contador 
 ; de 'pases-consecutivos' a 0 y pasamos a la fase de pedirle las coordenadas ('peticion').
+; Aunque los rastreos deberían haberse eliminado ya durante el análisis anterior (exito-analisis o limpiar-analisis),
+; se realiza una limpieza exhaustiva para prevenir residuos en la base de hechos y asegurar estabilidad entre fases.
 (defrule analisis-con-movimientos-real
    (declare (salience -10))
    ?fase <- (juego (fase analisis) (nivel 0))
@@ -469,7 +478,7 @@
 ; choca finalmente con una ficha del jugador actual ('estado ?propio').
 ; DETALLE: se destruye el rastreador '(retract ?r)' y nace un nuevo hecho llamado 'captura-confirmada'. 
 ; Este nuevo hecho contiene la info de la acción (dónde empieza, dónde acaba y en qué dirección va) 
-; que el sistema utilizará en la siguiente fase para saber ué fichas debe voltear.
+; que el sistema utilizará en la siguiente fase para saber qué fichas debe voltear.
 (defrule confirmar-captura
    (juego (fase validacion) (nivel ?n))
    ?r <- (rastreo (f ?f_fin) (c ?c_fin) (df ?df) (dc ?dc) (nivel ?n))
@@ -487,7 +496,7 @@
 ; a partir del intento de movimiento terminan en un "sándwich" válido.
 ; Esta regla elimina al rastreador si se da una de estas dos condiciones:
 ; 1. Se cae por el borde del tablero (la coordenada ya no existe).
-; 2. Tropieza con una casilla vacía (rompiendo la línea ininterrumpida que exige el Othello).
+; 2. Tropieza con una casilla vacía (rompiendo la línea ininterrumpida que exige Othello).
 ; DETALLE: gracias a su prioridad baja '(declare (salience -5))', el motor 
 ; solo recurre a esta regla si las reglas de avanzar o confirmar (que tienen 
 ; prioridad normal de 0) no pueden ejecutarse.
@@ -522,7 +531,7 @@
 ) 
 
 ; 6.
-; Esta regla evitaa que el programa falle si el jugador introduce números fuera del tamaño del tablero (por ejemplo, fila 9 o columna 0).
+; Esta regla evita que el programa falle si el jugador introduce números fuera del tamaño del tablero (por ejemplo, fila 9 o columna 0).
 ; Se ejecuta con alta prioridad (salience 20) durante la fase de validación en la partida real (nivel 0).
 ; Si no existe el hecho que representa a la casilla en memoria, el movimiento está fuera de los límites físicos del tablero, se borra el intento 
 ; y devuelve el estado a la fase de 'peticion' para volver a preguntar.
@@ -569,6 +578,7 @@
 ; '(retract ?fase)' en el consecuente, se elimina la condición principal de disparo. 
 ; Esto garantiza que esta regla de transición se ejecute una única vez por turno. 
 ; Tras esto, el motor avanza a la fase de 'ejecucion' para colocar y voltear las fichas.
+; Es decir, solo nos interesa saber si hay alguna captura confirmada y si se puede pasar a la siguiente fase
 (defrule validar-exito-y-ejecutar
    (declare (salience -10))
    ?fase <- (juego (fase validacion) (nivel ?n))
