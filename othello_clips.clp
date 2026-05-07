@@ -901,10 +901,12 @@
 ;
 ; DETALLE: el patrón '(not (mejor-movida-encontrada ? ? ?v2&:(> ?v2 ?v)))' encuentra el máximo absoluto dentro de una base de hechos. Busca un hecho 
 ; 'mejor-movida-encontrada', y simultáneamente verifica que NO exista ningún otro con un valor superior.
-; Una vez identificadas las coordenadas definitivas, la regla realiza una limpieza general final, 
-; borrando cualquier rastro residual del universo simulado (niveles > 0). Finalmente, introduce la 
-; decisión en el motor de juego real afirmando un 'intento-movimiento' en el nivel 0 y cambiando 
-; la fase a 'validacion'. A partir de este instante, las mismas reglas que aplican 
+; Una vez identificadas las coordenadas definitivas, la regla realiza una limpieza general final:
+; 1. Borrando cualquier rastro residual del universo simulado (tableros y nodos de niveles > 0).
+; 2. Vaciando la memoria a corto plazo del nivel 0 (borra todas las marcas de 'simulacion-iniciada' 
+;    y restos de 'mejor-movida-encontrada'). Esto garantiza que en su próximo turno el agente no intente reciclar jugadas viejas.
+; Finalmente, introduce la decisión en el motor de juego real afirmando un 'intento-movimiento' en el nivel 0 
+; y cambiando la fase a 'validacion'. A partir de este instante, las mismas reglas que aplican 
 ; al humano validarán y ejecutarán el movimiento de la máquina.
 (defrule finalizar-ia-y-ejecutar-real
    ?f <- (juego (fase simulacion) (nivel 0))
@@ -920,6 +922,10 @@
    
    ; VOLVEMOS AL JUEGO REAL
    (retract ?f ?mejor)
+
+   (do-for-all-facts ((?s simulacion-iniciada)) (= ?s:nivel 0) (retract ?s))
+   (do-for-all-facts ((?m mejor-movida-encontrada)) TRUE (retract ?m))
+
    (assert (intento-movimiento (color ?p) (fila ?f-real) (columna ?c-real) (nivel 0)))
    (assert (juego (fase validacion) (nivel 0)))
 )
