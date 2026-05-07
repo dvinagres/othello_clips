@@ -152,12 +152,12 @@
 ; DETALLE: la condición '(= ?casilla:nivel 0)' garantiza que la pantalla SOLO muestre la partida real y 
 ; nunca imprima los tableros que el agente está "imaginando" durante sus simulaciones.
 (deffunction mostrar-tablero (?tamano)
-    (printout t crlf "    | ")
+    (printout t crlf "   | ")
     (loop-for-count (?c 1 ?tamano) (printout t ?c " | "))
     (printout t crlf)
     
     ; Línea divisoria dinámica
-    (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-")) 
+    (loop-for-count (?i 1 (+ 4 (* ?tamano 4))) (printout t "-")) 
     (printout t crlf)
 
     (loop-for-count (?f 1 ?tamano)
@@ -171,7 +171,7 @@
             )
         )
         (printout t crlf)
-        (loop-for-count (?i 1 (+ 2 (* ?tamano 4))) (printout t "-"))
+        (loop-for-count (?i 1 (+ 4 (* ?tamano 4))) (printout t "-"))
         (printout t crlf)
     )
 )
