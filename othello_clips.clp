@@ -301,7 +301,7 @@
 ; 'modify' simplemente actualiza los valores 'f' y 'c' sumándoles la dirección ('df' y 'dc'). 
 (defrule propagar-analisis
    (juego (fase analisis) (nivel ?n))
-   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc) (nivel ?n)) ; AJUSTE: Slots
+   ?rastreo <- (rastreo (f ?f) (c ?c) (df ?df) (dc ?dc) (nivel ?n)) 
    (turno (jugador ?p) (nivel ?n))
    (tablero (fila ?f) (columna ?c) (estado ~vacia&~?p) (nivel ?n))
    =>
@@ -313,7 +313,7 @@
 ; DETALLE: en el la parte de ejecución, el explorador se destruye con '(retract ?rastreo)' 
 ; porque ya ha hecho su trabajo. Pero lo más importante es que el '(assert (posible-jugada...))' 
 ; NO usa las coordenadas actuales ('?rf', '?rc'), sino las coordenadas de ORIGEN ('?f', '?c') 
-; donde el "explorador". Ahí es donde el jugador debe poner la ficha.
+; del "explorador". Ahí es donde el jugador debe poner la ficha.
 (defrule exito-analisis
    (juego (fase analisis) (nivel ?n))
    ?rastreo <- (rastreo (orig-f ?f) (orig-c ?c) (f ?rf) (c ?rc) (nivel ?n))
@@ -336,7 +336,7 @@
 (defrule limpiar-analisis
    (declare (salience -5))
    (juego (fase analisis) (nivel ?n))
-   ?rastreo <- (rastreo (f ?f) (c ?c) (nivel ?n)) ; AJUSTE: Slots
+   ?rastreo <- (rastreo (f ?f) (c ?c) (nivel ?n)) 
    (or (not (tablero (fila ?f) (columna ?c) (nivel ?n)))
        (tablero (fila ?f) (columna ?c) (estado vacia) (nivel ?n)))
    =>
@@ -345,7 +345,7 @@
 
 ; --- RESOLUCIÓN PARA EL JUEGO REAL (Nivel 0) ---
 
-; Esta regla actúa confirme si se puede continuar la partida.
+; Esta regla confirma si se puede continuar la partida.
 ; Se dispara solo cuando termina de escanear (salience -10) y confirma que al menos 
 ; hay una casilla legal donde jugar en el tablero real (nivel 0).
 ; DETALLE: '(exists (posible-jugada...))'. Si no usáramos 'exists' y el jugador tuviera 5 jugadas posibles, esta regla intentaría 
@@ -398,7 +398,7 @@
 ; --- RESOLUCIÓN PARA LA SIMULACIÓN DE LA IA (Nivel > 0) ---
 
 ; Esta regla hace exactamente la misma función que la anterior, 
-; pero está diseñada en exclusiva para los tableros paralelos que el agente (nivel > 0).
+; pero está diseñada en exclusiva para los tableros paralelos del agente (nivel > 0).
 ; La diferencia principal está en la consecuencia: como aquí no hay un humano al que preguntarle,
 ; no se pasa a la fase de 'peticion'. En su lugar, se limpia la basura del rastreo y 
 ; pasamos directamente a la fase de 'simulacion'. 
@@ -549,7 +549,7 @@
 ; 7.
 ; Esta regla comprueba la legalidad estructural de la jugada.
 ; Su característica principal es la prioridad muy baja '(declare (salience -20))'. 
-; Esto obliga al motor a esperar pacientemente a que todos los rastreadores
+; Esto obliga al motor a esperar a que todos los rastreadores
 ; terminen de buscar en las 8 direcciones posibles. 
 ; Si, una vez concluida toda la exploración, el sistema verifica que NO se ha generado 
 ; ni un solo hecho de 'captura-confirmada', significa que la coordenada elegida 
@@ -592,7 +592,7 @@
 ; 4.4. EJECUCIÓN DE MOVIMIENTOS
 ; -----------------------------------------
 
-; 1. COLOCAR: Pone la ficha y marca el inicio del volteo
+; 1. COLOCAR: pone la ficha y marca el inicio del volteo
 ; Una vez que la fase de validación ha garantizado que el movimiento es legal 
 ; (generando los hechos 'captura-confirmada'), esta regla ejecuta la primera 
 ; acción: colocar la nueva ficha en la casilla vacía.
@@ -728,7 +728,7 @@
       (assert (tablero (fila ?t:fila) (columna ?t:columna) (estado ?t:estado) (nivel ?nuevo-nivel)))
    )
    
-   ; Mantenemos el turno original, inyectamos el movimiento y lanzamos la validación del motor
+   ; Mantenemos el turno original, insertamos el movimiento y lanzamos la validación del motor
    (assert (turno (jugador ?color-actual) (nivel ?nuevo-nivel)))
    (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c) (nivel ?nuevo-nivel)))
    (assert (juego (fase validacion) (nivel ?nuevo-nivel)))
@@ -759,13 +759,13 @@
    (profundidad-maxima ?n) ; Solo evaluamos si estamos en el fondo
    ?nod <- (nodo (nivel ?n) (estado expandiendo))
    =>
-   ; Identificamos quién es la IA y quién el humano (suponiendo IA es blanca)
+   ; Identificamos quién es el agente y quién el humano
    (bind ?color-ia blanca)
    (bind ?color-humano negra)
 
-   ; Calculamos puntuación IA
+   ; Calculamos puntuación agente
    (bind ?fichas-ia (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado ?color-ia)))))
-   ; Bonus esquinas IA (50 puntos extra por cada una)
+   ; Bonus esquinas agente (50 puntos extra por cada una)
    (bind ?esquinas-ia (length$ (find-all-facts ((?t tablero)) 
       (and (= ?t:nivel ?n) (eq ?t:estado ?color-ia)
            (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna 8))
@@ -821,11 +821,11 @@
    (do-for-all-facts ((?j juego)) (= ?j:nivel ?nh) (retract ?j))
    (do-for-all-facts ((?t turno)) (= ?t:nivel ?nh) (retract ?t))
    
-   (if (eq ?jug-padre blanca) ; Si el padre es la IA (MAX)
+   (if (eq ?jug-padre blanca) ; Si el padre es el agente (MAX)
     then
        (bind ?nuevo-alpha (max ?a ?val))
        (modify ?padre (alpha ?nuevo-alpha) (valor-elegido ?nuevo-alpha))
-    else ; Si el padre es el HUMANO (MIN)
+    else ; Si el padre es el humano (MIN)
        (bind ?nuevo-beta (min ?b ?val))
        (modify ?padre (beta ?nuevo-beta) (valor-elegido ?nuevo-beta))
    )
