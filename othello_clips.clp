@@ -102,6 +102,8 @@
    (slot beta (type NUMBER) (default 10000))   ; El mejor valor para MIN
    (slot estado (allowed-values expandiendo evaluado finalizado))
    (slot valor-elegido (type NUMBER))    ; El valor que subirá al padre
+   (slot jugada-f (type INTEGER) (default 0)) ; Fila del movimiento que originó este nodo
+   (slot jugada-c (type INTEGER) (default 0)) ; Columna del movimiento que originó este nodo
 )
 
 ; Marca temporal para el algoritmo del agente
@@ -642,7 +644,7 @@
       (= (* (- ?fr ?fo) ?dc) (* (- ?cr ?co) ?df))
       ; 2. ¿Está en la dirección correcta?
       (>= (* (- ?fr ?fo) ?df) 0)
-      (>= (* (- ?fr ?fo) ?dc) 0)
+      (>= (* (- ?cr ?co) ?dc) 0)
       ; 3. ¿Está antes de llegar a la ficha que cierra el sándwich?
       (or (< (abs (- ?fr ?fo)) (abs (- ?ff ?fo)))
           (< (abs (- ?cr ?co)) (abs (- ?cf ?co))))
@@ -711,7 +713,9 @@
 ; 'intento-movimiento' y establece la fase del nuevo nivel en 'validacion'. 
 ; Esta arquitectura permite que el sistema reutilice las mismas reglas 
 ; (rastreo, captura y volteo) que controlan las jugadas de la partida real. 
-; El hecho 'simulacion-iniciada' asegura que cada ramificación se procese una sola vez.
+; El hecho 'simulacion-iniciada' asegura que cada ramificación se procese una sola vez,
+; y al generar el nuevo nodo, se le inserten las coordenadas exactas de la jugada 
+; para no perder la trazabilidad de la decisión.
 (defrule clonar-nivel-para-simulacion
    (juego (fase simulacion) (nivel ?n))
    (nodo (nivel ?n) (estado expandiendo))
@@ -735,7 +739,7 @@
    
    ; Marcamos que ya estamos probando esta jugada
    (assert (simulacion-iniciada (fila ?f) (columna ?c) (nivel ?n)))
-   (assert (nodo (nivel ?nuevo-nivel) (padre-nivel ?n) (estado expandiendo)))
+   (assert (nodo (nivel ?nuevo-nivel) (padre-nivel ?n) (estado expandiendo) (jugada-f ?f) (jugada-c ?c))) 
 )
 
 ; Esta regla es la función heurística del agente. Es la forma en la que
@@ -879,18 +883,18 @@
 ; Su objetivo es recordar qué coordenadas exactas producen el mejor resultado,
 ; ya que el nodo raíz (nivel 0) por sí solo solo guarda la puntuación (alpha), no el movimiento.
 ;
-; DETALLE: tiene una prioridad altísima '(declare (salience 150))'. Debe ejecutarse ANTES que la regla 'actualizar-padre-desde-hijo' (que tiene salience 100). 
-; Si se ejecutara después, la limpieza destruiría el nodo hijo y el hecho 
-; 'simulacion-iniciada' antes de que la IA pudiera extraer la fila ('?f') y columna ('?c') 
-; que originaron ese tablero. Al detectar que el hijo aporta un valor mayor que el 'alpha' 
-; actual del padre ('test (> ?val ?a)'), el sistema genera un hecho 'mejor-movida-encontrada' 
-; que servirá para ejecutar la jugada real cuando el árbol termine de procesarse.
+; DETALLE: tiene una prioridad altísima '(declare (salience 150))'. Debe ejecutarse ANTES que 
+; la regla 'actualizar-padre-desde-hijo' (que tiene salience 100). Si se ejecutara después, 
+; la limpieza destruiría el nodo hijo antes de que la IA pudiera extraer de él la fila ('?f') 
+; y columna ('?c') que originaron ese tablero. Al detectar que el hijo aporta un valor mayor 
+; que el 'alpha' actual del padre ('test (> ?val ?a)'), el sistema genera un hecho 
+; 'mejor-movida-encontrada' que servirá para ejecutar la jugada real cuando el árbol termine de procesarse.
 (defrule registrar-mejor-movimiento-ia
    (declare (salience 150))
    ?padre <- (nodo (nivel 0) (estado expandiendo) (alpha ?a))
-   ?hijo <- (nodo (nivel 1) (padre-nivel 0) (estado evaluado|finalizado) (valor-elegido ?val))
-   (simulacion-iniciada (fila ?f) (columna ?c) (nivel 0)) ; Buscamos qué coordenadas eran
-   (test (> ?val ?a)) ; Si este hijo es mejor que lo que teníamos
+   ; El hijo nos dice exactamente qué coordenadas lo generaron
+   ?hijo <- (nodo (nivel 1) (padre-nivel 0) (estado evaluado|finalizado) (valor-elegido ?val) (jugada-f ?f) (jugada-c ?c))
+   (test (> ?val ?a)) 
    =>
    (assert (mejor-movida-encontrada ?f ?c ?val))
 )
