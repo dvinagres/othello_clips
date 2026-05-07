@@ -766,6 +766,7 @@
    (juego (fase simulacion) (nivel ?n))
    (profundidad-maxima ?n) ; Solo evaluamos si estamos en el fondo
    ?nod <- (nodo (nivel ?n) (estado expandiendo))
+   (configuracion (tamano ?max))
    =>
    ; Identificamos quién es el agente y quién el humano
    (bind ?color-ia blanca)
@@ -776,15 +777,15 @@
    ; Bonus esquinas agente (50 puntos extra por cada una)
    (bind ?esquinas-ia (length$ (find-all-facts ((?t tablero)) 
       (and (= ?t:nivel ?n) (eq ?t:estado ?color-ia)
-           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna 8))
-               (and (= ?t:fila 8) (= ?t:columna 1)) (and (= ?t:fila 8) (= ?t:columna 8)))))))
+           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna ?max))
+               (and (= ?t:fila ?max) (= ?t:columna 1)) (and (= ?t:fila ?max) (= ?t:columna ?max)))))))
    
    ; Calculamos puntuación Humano
    (bind ?fichas-hu (length$ (find-all-facts ((?t tablero)) (and (= ?t:nivel ?n) (eq ?t:estado ?color-humano)))))
    (bind ?esquinas-hu (length$ (find-all-facts ((?t tablero)) 
       (and (= ?t:nivel ?n) (eq ?t:estado ?color-humano)
-           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna 8))
-               (and (= ?t:fila 8) (= ?t:columna 1)) (and (= ?t:fila 8) (= ?t:columna 8)))))))
+           (or (and (= ?t:fila 1) (= ?t:columna 1)) (and (= ?t:fila 1) (= ?t:columna ?max))
+               (and (= ?t:fila ?max) (= ?t:columna 1)) (and (= ?t:fila ?max) (= ?t:columna ?max)))))))
 
    ; Valor total: (Fichas + Bonus IA) - (Fichas + Bonus Humano)
    (bind ?puntos (+ ?fichas-ia (* ?esquinas-ia 50)))
