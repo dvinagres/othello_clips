@@ -713,12 +713,14 @@
 ; 'intento-movimiento' y establece la fase del nuevo nivel en 'validacion'. 
 ; Esta arquitectura permite que el sistema reutilice las mismas reglas 
 ; (rastreo, captura y volteo) que controlan las jugadas de la partida real. 
-; El hecho 'simulacion-iniciada' asegura que cada ramificación se procese una sola vez,
-; y al generar el nuevo nodo, se le inserten las coordenadas exactas de la jugada 
-; para no perder la trazabilidad de la decisión.
+; El hecho 'simulacion-iniciada' asegura que cada ramificación se procese una sola vez.
+; Al generar el nuevo nodo, se le inyectan las coordenadas exactas de la jugada 
+; para no perder la trazabilidad de la decisión, y hereda los límites 'alpha' y 'beta' 
+; de su padre. Esta herencia es indispensable para que el sistema de poda 
+; pueda descartar ramas ineficientes posteriormente.
 (defrule clonar-nivel-para-simulacion
    (juego (fase simulacion) (nivel ?n))
-   (nodo (nivel ?n) (estado expandiendo))
+   (nodo (nivel ?n) (estado expandiendo) (alpha ?a) (beta ?b)) ; Sacar los valores del padre
    (profundidad-maxima ?max)
    (test (< ?n ?max))
    ; Buscamos una jugada que queramos probar
@@ -732,14 +734,16 @@
       (assert (tablero (fila ?t:fila) (columna ?t:columna) (estado ?t:estado) (nivel ?nuevo-nivel)))
    )
    
-   ; Mantenemos el turno original, insertamos el movimiento y lanzamos la validación del motor
+   ; Mantenemos el turno original, insertamos el movimiento y lanzamos la validación
    (assert (turno (jugador ?color-actual) (nivel ?nuevo-nivel)))
    (assert (intento-movimiento (color ?color-actual) (fila ?f) (columna ?c) (nivel ?nuevo-nivel)))
    (assert (juego (fase validacion) (nivel ?nuevo-nivel)))
    
    ; Marcamos que ya estamos probando esta jugada
    (assert (simulacion-iniciada (fila ?f) (columna ?c) (nivel ?n)))
-   (assert (nodo (nivel ?nuevo-nivel) (padre-nivel ?n) (estado expandiendo) (jugada-f ?f) (jugada-c ?c))) 
+   
+   ; Insertamos el alpha y beta heredados
+   (assert (nodo (nivel ?nuevo-nivel) (padre-nivel ?n) (estado expandiendo) (jugada-f ?f) (jugada-c ?c) (alpha ?a) (beta ?b))) 
 )
 
 ; Esta regla es la función heurística del agente. Es la forma en la que
